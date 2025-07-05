@@ -938,6 +938,46 @@
         ]
       },
       {
+        "id": "set_finger_bot_mode",
+        "title": {
+          "en": "Set Finger Bot mode"
+        },
+        "titleFormatted": {
+          "en": "Set Finger Bot mode to [[finger_bot_mode]]"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=fingerbot"
+          },
+          {
+            "name": "finger_bot_mode",
+            "type": "dropdown",
+            "values": [
+              {
+                "id": "click",
+                "label": {
+                  "en": "Click"
+                }
+              },
+              {
+                "id": "switch",
+                "label": {
+                  "en": "Switch"
+                }
+              },
+              {
+                "id": "program",
+                "label": {
+                  "en": "Program"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
         "id": "alarm_state",
         "title": {
           "en": "Change the alarm state",
@@ -2348,6 +2388,124 @@
       ]
     },
     {
+      "id": "fingerbot",
+      "name": {
+        "en": "Finger Bot"
+      },
+      "class": "socket",
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "zigbee"
+      ],
+      "capabilities": [
+        "onoff",
+        "measure_battery",
+        "finger_bot_mode"
+      ],
+      "images": {
+        "large": "/drivers/fingerbot/assets/images/large.png",
+        "small": "/drivers/fingerbot/assets/images/small.png"
+      },
+      "energy": {
+        "batteries": [
+          "CR2"
+        ]
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "_TZ3210_j4pdtz9v"
+        ],
+        "productId": [
+          "TS0001"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              6,
+              61184
+            ],
+            "bindings": [
+              25,
+              10
+            ]
+          }
+        },
+        "learnmode": {
+          "image": "/drivers/fingerbot/assets/icon.svg",
+          "instruction": {
+            "en": "Press the button on the Finger Bot to enter pairing mode."
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "reverse",
+          "type": "checkbox",
+          "label": {
+            "en": "Reverse mode"
+          },
+          "hint": {
+            "en": "Enable reverse operation mode."
+          }
+        },
+        {
+          "id": "lower_limit",
+          "type": "number",
+          "label": {
+            "en": "Lower movement limit (%)"
+          },
+          "hint": {
+            "en": "Set the lower limit of the Finger Bot's movement (in percentage)."
+          },
+          "value": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "id": "upper_limit",
+          "type": "number",
+          "label": {
+            "en": "Upper movement limit (%)"
+          },
+          "hint": {
+            "en": "Set the upper limit of the Finger Bot's movement (in percentage)."
+          },
+          "value": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "id": "delay",
+          "type": "number",
+          "label": {
+            "en": "Delay (seconds)"
+          },
+          "hint": {
+            "en": "Set the sustain time for the Finger Bot (in seconds)."
+          },
+          "value": 1,
+          "min": 0,
+          "max": 10,
+          "step": 1
+        },
+        {
+          "id": "touch",
+          "type": "checkbox",
+          "label": {
+            "en": "Touch control"
+          },
+          "hint": {
+            "en": "Enable touch control for the Finger Bot."
+          }
+        }
+      ]
+    },
+    {
       "id": "flood_sensor",
       "name": {
         "en": "Flood sensor"
@@ -3405,7 +3563,8 @@
           "_TZ3000_6ygjfyll",
           "_TZ3040_6ygjfyll",
           "_TZ3040_bb6xaihh",
-          "_TZ3000_nss8amz9"
+          "_TZ3000_nss8amz9",
+          "_TZ3000_bsvqrxru"
         ],
         "productId": [
           "TS0202"
@@ -9271,6 +9430,35 @@
       "getable": true,
       "setable": true
     },
+    "finger_bot_mode": {
+      "type": "enum",
+      "title": {
+        "en": "Finger Bot Mode"
+      },
+      "getable": true,
+      "setable": true,
+      "values": [
+        {
+          "id": "click",
+          "title": {
+            "en": "Click"
+          }
+        },
+        {
+          "id": "switch",
+          "title": {
+            "en": "Switch"
+          }
+        },
+        {
+          "id": "program",
+          "title": {
+            "en": "Program"
+          }
+        }
+      ],
+      "uiComponent": "picker"
+    },
     "child_lock": {
       "type": "boolean",
       "title": {
@@ -9311,6 +9499,78 @@
           }
         }
       ]
+    },
+    "measure_formaldehyde": {
+      "type": "number",
+      "title": {
+        "en": "Formaldehyde",
+        "nl": "Formaldehyde",
+        "de": "Formaldehyd",
+        "fr": "Formaldéhyde",
+        "it": "Formaldeide",
+        "sv": "Formaldehyd",
+        "no": "Formaldehyd",
+        "es": "Formaldehído",
+        "da": "Formaldehyd",
+        "pl": "Formaldehyd"
+      },
+      "units": {
+        "en": "ppm",
+        "ru": "ч./млн."
+      },
+      "insights": true,
+      "desc": {
+        "en": "Formaldehyde in Parts-per-million (ppm)",
+        "nl": "Formaldehyde deeltjes per miljoen (ppm)",
+        "de": "Formaldehyd in Anteile pro Million (ppm)",
+        "fr": "Niveau de formaldéhyde en parts par million (ppm)",
+        "it": "Livello di formaldeide in parti per milione (ppm)",
+        "sv": "Formaldehyd i partiklar-per-miljon (ppm)",
+        "no": "Formaldehyd i partikler per million (ppm)",
+        "es": "Formaldehído en partes por millón (ppm)",
+        "da": "Formaldehyd i partikler-per-million (ppm)",
+        "pl": "Stężenie formaldehye w części na milion (ppm)"
+      },
+      "chartType": "spline",
+      "decimals": 4,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor"
+    },
+    "measure_voc": {
+      "type": "number",
+      "title": {
+        "en": "VOC",
+        "nl": "VOC",
+        "de": "VOC",
+        "fr": "VOC",
+        "it": "VOC",
+        "sv": "VOC",
+        "no": "VOC",
+        "da": "VOC",
+        "pl": "VOC"
+      },
+      "units": {
+        "en": "ppm"
+      },
+      "insights": true,
+      "desc": {
+        "en": "VOC in Parts-per-million (ppm)",
+        "nl": "VOC deeltjes per miljoen (ppm)",
+        "de": "VOC in Anteile pro Million (ppm)",
+        "fr": "Niveau de VOC en parts par million (ppm)",
+        "it": "Livello di VOC in parti per milione (ppm)",
+        "sv": "VOC i partiklar-per-miljon (ppm)",
+        "no": "VOC i partikler per million (ppm)",
+        "es": "VOC en partes por millón (ppm)",
+        "da": "VOC i partikler-per-million (ppm)",
+        "pl": "Stężenie VOC w części na milion (ppm)"
+      },
+      "chartType": "spline",
+      "decimals": 2,
+      "getable": true,
+      "setable": false,
+      "uiVOCmponent": "sensor"
     },
     "soil_moisture": {
       "type": "number",

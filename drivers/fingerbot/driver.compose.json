@@ -32,7 +32,7 @@
     "endpoints": {
       "1": {
         "clusters": [0, 6, 61184],
-        "bindings": [25, 10]
+        "bindings": [10, 25]
       }
     },
     "learnmode": {

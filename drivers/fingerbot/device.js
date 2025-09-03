@@ -1,127 +1,159 @@
+/* drivers/fingerbot/device.js */
 'use strict';
 
-const { Cluster } = require('zigbee-clusters');
-const TuyaSpecificCluster = require('../../lib/TuyaSpecificCluster');
-const TuyaSpecificClusterDevice = require("../../lib/TuyaSpecificClusterDevice");
-const TuyaOnOffCluster = require('../../lib/TuyaOnOffCluster');
-const { getDataValue } = require('../../lib/TuyaHelpers');
-const { V1_FINGER_BOT_DATA_POINTS } = require('../../lib/TuyaDataPoints');
+/* ──────────────────────────────────────────────────────────── */
+/*  Imports                                                    */
+/* ──────────────────────────────────────────────────────────── */
+const { Cluster, CLUSTER }       = require('zigbee-clusters');
 
+const TuyaSpecificCluster        = require('../../lib/TuyaSpecificCluster');
+const TuyaOnOffCluster           = require('../../lib/TuyaOnOffCluster');
+const TuyaSpecificClusterDevice  = require('../../lib/TuyaSpecificClusterDevice');
+const { getDataValue }           = require('../../lib/TuyaHelpers');
+const {
+  V1_FINGER_BOT_DATA_POINTS,
+} = require('../../lib/TuyaDataPoints');
+
+/*  Register extra Tuya clusters with zigbee-clusters            */
 Cluster.addCluster(TuyaSpecificCluster);
 Cluster.addCluster(TuyaOnOffCluster);
 
+/* ──────────────────────────────────────────────────────────── */
+/*  Device class                                               */
+/* ──────────────────────────────────────────────────────────── */
 class FingerBotTuya extends TuyaSpecificClusterDevice {
 
+  /* ───────────────  Initialise  ─────────────── */
   async onNodeInit({ zclNode }) {
+    /* always call super first */
     await super.onNodeInit({ zclNode });
 
     this.printNode();
 
-    // Read basic device attributes
-    await zclNode.endpoints[1].clusters.basic.readAttributes(
-      ['manufacturerName', 'zclVersion', 'appVersion', 'modelId', 'powerSource', 'attributeReportingStatus']
-    ).catch(err => {
-      this.error('Error when reading device attributes:', err.message, err);
+    /* --------------------------------------------------------- */
+    /*  ON / OFF – use the standard Zigbee genOnOff cluster      */
+    /*  (same trick as Johan Bendz’ “simple-plug” driver)        */
+    /* --------------------------------------------------------- */
+    this.registerCapability('onoff', CLUSTER.ON_OFF, {
+      getOpts: {
+        getOnStart : true,  // read state right after inclusion
+        getOnOnline: true,  // read again when device reconnects
+        pollInterval: 15000 // keep UI in sync every 15 s
+      },
     });
 
-    // Register on/off capability listener
-    this.registerCapabilityListener('onoff', async (onOff) => {
-      try {
-        await this.writeBool(V1_FINGER_BOT_DATA_POINTS.onOff, onOff);
-        this.log('Finger Bot on/off set to', onOff);
-      } catch (e) {
-        this.log('Failed to set on/off:', e.message, e);
-      }
-    });
+    /* --------------------------------------------------------- */
+    /*  Read a few basic attributes – purely diagnostic          */
+    /* --------------------------------------------------------- */
+    zclNode.endpoints[1].clusters.basic
+      .readAttributes([
+        'manufacturerName',
+        'zclVersion',
+        'appVersion',
+        'modelId',
+        'powerSource',
+        'attributeReportingStatus',
+      ])
+      .catch(err =>
+        this.error('Error when reading device attributes:', err)
+      );
 
-    // Register finger_bot_mode capability listener
-    this.registerCapabilityListener('finger_bot_mode', async (mode) => {
-      const modeMapping = {
-        'click': 0,
-        'switch': 1,
-        'program': 2
-      };
-      const modeValue = modeMapping[mode];
+    /* --------------------------------------------------------- */
+    /*  MODE capability (click / switch / program)               */
+    /* --------------------------------------------------------- */
+    this.registerCapabilityListener('finger_bot_mode', async mode => {
+      const map = { click: 0, switch: 1, program: 2 };
       try {
-        await this.writeEnum(V1_FINGER_BOT_DATA_POINTS.mode, modeValue);
+        await this.writeEnum(V1_FINGER_BOT_DATA_POINTS.mode, map[mode]);
         this.log('Finger Bot mode set to', mode);
       } catch (e) {
-        this.log('Failed to set mode:', e.message, e);
+        this.error('Failed to set mode:', e);
       }
     });
 
-    // Register flow card listener for finger_bot_mode
+    /* Flow card “Set mode”                                      */
     this.homey.flow.getActionCard('set_finger_bot_mode')
-      .registerRunListener(async (args) => {
-        const modeMapping = {
-          'click': 0,
-          'switch': 1,
-          'program': 2
-        };
-        const modeValue = modeMapping[args.mode];
-        await this.writeEnum(V1_FINGER_BOT_DATA_POINTS.mode, modeValue);
+      .registerRunListener(async args => {
+        const map = { click: 0, switch: 1, program: 2 };
+        await this.writeEnum(V1_FINGER_BOT_DATA_POINTS.mode, map[args.mode]);
         this.log('Finger Bot mode set via flow to', args.mode);
         return true;
       });
 
-    // Load settings and send to device
-    this._updateSettings();
+    /* --------------------------------------------------------- */
+    /*  Apply stored settings to the device                      */
+    /* --------------------------------------------------------- */
+    await this._sendSettingsToDevice();
 
-    // Handle reporting and responses
-    zclNode.endpoints[1].clusters.tuya.on("reporting", value => this.processResponse(value));
-    zclNode.endpoints[1].clusters.tuya.on("response", value => this.processResponse(value));
+    /* --------------------------------------------------------- */
+    /*  Listen for Tuya DP reports/responses                     */
+    /* --------------------------------------------------------- */
+    const tuyaCluster = zclNode.endpoints[1].clusters.tuya;
+    tuyaCluster.on('reporting', value => this._handleTuyaDp(value));
+    tuyaCluster.on('response',  value => this._handleTuyaDp(value));
 
-    this.log("🚀 Finger Bot initialized!");
+    this.log('🚀 Finger Bot initialised!');
   }
 
-  async _updateSettings() {
-    const reverse = this.getSetting('reverse') ?? false;
-    const lowerLimit = this.getSetting('lower_limit') ?? 50;
-    const upperLimit = this.getSetting('upper_limit') ?? 100;
-    const delay = this.getSetting('delay') ?? 1;
-    const touch = this.getSetting('touch') ?? false;
+  /* ───────────────  Settings → Device  ─────────────── */
+  async _sendSettingsToDevice() {
+    const reverse    = this.getSetting('reverse')      ?? false;
+    const lowerLimit = this.getSetting('lower_limit')  ?? 50;
+    const upperLimit = this.getSetting('upper_limit')  ?? 100;
+    const delay      = this.getSetting('delay')        ?? 1;
+    const touch      = this.getSetting('touch')        ?? false;
 
-    // Apply settings to the device
     try {
-      if (reverse !== null) await this.writeBool(V1_FINGER_BOT_DATA_POINTS.reverse, reverse);
-      if (lowerLimit !== null) await this.writeData32(V1_FINGER_BOT_DATA_POINTS.lowerLimit, lowerLimit);
-      if (upperLimit !== null) await this.writeData32(V1_FINGER_BOT_DATA_POINTS.upperLimit, upperLimit);
-      if (delay !== null) await this.writeData32(V1_FINGER_BOT_DATA_POINTS.delay, delay);
-      if (touch !== null) await this.writeBool(V1_FINGER_BOT_DATA_POINTS.touch, touch);
-      
-      this.log('Settings applied to Finger Bot');
+      await this.writeBool (V1_FINGER_BOT_DATA_POINTS.reverse   , reverse);
+      await this.writeData32(V1_FINGER_BOT_DATA_POINTS.lowerLimit, lowerLimit);
+      await this.writeData32(V1_FINGER_BOT_DATA_POINTS.upperLimit, upperLimit);
+      await this.writeData32(V1_FINGER_BOT_DATA_POINTS.delay     , delay);
+      await this.writeBool (V1_FINGER_BOT_DATA_POINTS.touch      , touch);
+
+      this.log('Settings pushed to Finger Bot');
     } catch (e) {
-      this.log('Error applying settings to Finger Bot:', e.message, e);
+      this.error('Error while sending settings:', e);
     }
   }
 
-  // Process incoming datapoint reports or responses
-  async processResponse(data) {
-    const dp = data.dp;
-    const parsedValue = getDataValue(data);
+  /* ───────────────  Handle Tuya datapoints  ─────────────── */
+  async _handleTuyaDp(dpFrame) {
+    const dp         = dpFrame.dp;
+    const parsed     = getDataValue(dpFrame);
 
     switch (dp) {
+
       case V1_FINGER_BOT_DATA_POINTS.onOff:
-        await this.setCapabilityValue('onoff', parsedValue);
+        /* Homey already updates “onoff” through CLUSTER.ON_OFF,
+           but we keep this in case the device reports through DP as well.  */
+        await this.setCapabilityValue('onoff', !!parsed).catch(this.error);
         break;
+
       case V1_FINGER_BOT_DATA_POINTS.mode:
-        await this.setCapabilityValue('finger_bot_mode', ['click', 'switch', 'program'][parsedValue]);
+        await this.setCapabilityValue(
+          'finger_bot_mode',
+          ['click', 'switch', 'program'][parsed],
+        ).catch(this.error);
         break;
+
       case V1_FINGER_BOT_DATA_POINTS.battery:
-        await this.setCapabilityValue('measure_battery', parsedValue);
+        await this.setCapabilityValue('measure_battery', parsed)
+          .catch(this.error);
         break;
+
       default:
-        this.log(`Unknown datapoint ${dp}:`, parsedValue);
+        this.log(`Unhandled DP ${dp}:`, parsed);
     }
   }
 
-  // Apply new settings when they are changed by the user
-  async onSettings({ oldSettings, newSettings, changedKeys }) {
-    await this._updateSettings();
+  /* ───────────────  Homey settings changed  ─────────────── */
+  async onSettings() {
+    await this._sendSettingsToDevice();
   }
 
+  /* ───────────────  Device removed  ─────────────── */
   onDeleted() {
-    this.log('Finger Bot device removed');
+    this.log('Finger Bot removed');
   }
 }
 

@@ -2415,7 +2415,9 @@
       },
       "zigbee": {
         "manufacturerName": [
-          "_TZ3210_j4pdtz9v"
+          "_TZ3210_dse8ogfy",
+          "_TZ3210_j4pdtz9v",
+          "_TZ3210_cm9mbpr1"
         ],
         "productId": [
           "TS0001"
@@ -2428,8 +2430,8 @@
               61184
             ],
             "bindings": [
-              25,
-              10
+              10,
+              25
             ]
           }
         },

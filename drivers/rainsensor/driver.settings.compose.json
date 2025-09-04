@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sensitivity",
+    "type": "number",
+    "label": { "en": "Rain sensitivity" },
+    "hint": { "en": "0 = least sensitive, 9 = most sensitive." },
+    "min": 0,
+    "max": 9,
+    "step": 1
+  },
+  {
+    "id": "illuminance_sampling",
+    "type": "number",
+    "label": { "en": "Illuminance sampling interval (minutes)" },
+    "hint": { "en": "Brightness acquisition interval. 1-480 minutes." },
+    "min": 1,
+    "max": 480,
+    "step": 1
+  },
+  {
+    "id": "illuminance_calibration",
+    "type": "number",
+    "label": { "en": "Illuminance calibration (%)" },
+    "hint": { "en": "Percentual offset applied to reported lux (e.g., -10 or 15)." },
+    "min": -100,
+    "max": 100,
+    "step": 1,
+    "value": 0
+  }
+]

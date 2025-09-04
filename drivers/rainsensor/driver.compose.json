@@ -1,0 +1,51 @@
+{
+  "id": "rainsensor",
+  "name": {
+    "en": "Rain Sensor"
+  },
+  "class": "sensor",
+  "platforms": ["local"],
+  "connectivity": ["zigbee"],
+  "capabilities": [
+    "alarm_water",
+    "measure_luminance",
+    "measure_battery",
+    "measure_voltage"
+  ],
+  "images": {
+    "large": "{{driverAssetsPath}}/images/large.png",
+    "small": "{{driverAssetsPath}}/images/small.png"
+  },
+  "zigbee": {
+    "manufacturerName": [
+      "_TZE200_u6x1zyv2"
+    ],
+    "productId": [
+      "TS0601"
+    ],
+    "endpoints": {
+      "1": {
+        "clusters": [0, 1, 1024, 1280, 61184],
+        "bindings": [1, 1024, 1280]
+      }
+    },
+    "learnmode": {
+      "image": "{{driverAssetsPath}}/icon.svg",
+      "instruction": {
+        "en": "Put the sensor into pairing mode (hold the button) and add it in Homey."
+      }
+    }
+  },
+  "capabilitiesOptions": {
+    "measure_luminance": {
+      "title": { "en": "Illuminance" },
+      "units": { "en": "lx" },
+      "decimals": 0
+    },
+    "measure_voltage": {
+      "title": { "en": "Battery voltage" },
+      "units": { "en": "V" },
+      "decimals": 1
+    }
+  }
+}

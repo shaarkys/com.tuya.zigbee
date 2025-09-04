@@ -1,0 +1,48 @@
+{
+  "triggers": [
+    {
+      "id": "rain_started",
+      "title": { "en": "Rain started" }
+    },
+    {
+      "id": "rain_stopped",
+      "title": { "en": "Rain stopped" }
+    }
+  ],
+  "conditions": [
+    {
+      "id": "is_raining",
+      "title": { "en": "It is raining?" }
+    }
+  ],
+  "actions": [
+    {
+      "id": "set_rain_sensitivity",
+      "title": { "en": "Set rain sensitivity" },
+      "args": [
+        {
+          "name": "value",
+          "type": "number",
+          "min": 0,
+          "max": 9,
+          "step": 1,
+          "title": { "en": "Sensitivity (0–9)" }
+        }
+      ]
+    },
+    {
+      "id": "set_illuminance_sampling",
+      "title": { "en": "Set illuminance sampling interval" },
+      "args": [
+        {
+          "name": "minutes",
+          "type": "number",
+          "min": 1,
+          "max": 480,
+          "step": 1,
+          "title": { "en": "Minutes (1–480)" }
+        }
+      ]
+    }
+  ]
+}

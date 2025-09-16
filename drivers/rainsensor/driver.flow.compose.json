@@ -19,6 +19,7 @@
     {
       "id": "set_rain_sensitivity",
       "title": { "en": "Set rain sensitivity" },
+      "titleFormatted": { "en": "Set rain sensitivity to [[value]]" },
       "args": [
         {
           "name": "value",
@@ -33,6 +34,7 @@
     {
       "id": "set_illuminance_sampling",
       "title": { "en": "Set illuminance sampling interval" },
+      "titleFormatted": { "en": "Set illuminance sampling to [[minutes]] min" },
       "args": [
         {
           "name": "minutes",

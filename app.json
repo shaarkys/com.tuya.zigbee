@@ -1008,6 +1008,9 @@
         "title": {
           "en": "Set rain sensitivity"
         },
+        "titleFormatted": {
+          "en": "Set rain sensitivity to [[value]]"
+        },
         "args": [
           {
             "type": "device",
@@ -1030,6 +1033,9 @@
         "id": "set_illuminance_sampling",
         "title": {
           "en": "Set illuminance sampling interval"
+        },
+        "titleFormatted": {
+          "en": "Set illuminance sampling to [[minutes]] min"
         },
         "args": [
           {
@@ -3406,6 +3412,206 @@
       ]
     },
     {
+      "id": "motion_sensor_3",
+      "name": {
+        "en": "Motion sensor 3"
+      },
+      "class": "sensor",
+      "capabilities": [
+        "measure_battery",
+        "alarm_battery",
+        "measure_luminance",
+        "alarm_motion",
+        "measure_temperature",
+        "measure_humidity"
+      ],
+      "energy": {
+        "batteries": [
+          "AAA",
+          "AAA"
+        ]
+      },
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "zigbee"
+      ],
+      "images": {
+        "small": "/drivers/motion_sensor_3/assets/images/small.png",
+        "large": "/drivers/motion_sensor_3/assets/images/large.png"
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "_TZE200_rhgsbacq",
+          "_TZE200_grgol3xp",
+          "_TZE200_uli8wasj",
+          "_TZE200_y8jijhba"
+        ],
+        "productId": [
+          "TS0601"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              3,
+              1024,
+              1026,
+              1029,
+              1280,
+              61184
+            ],
+            "bindings": [
+              1,
+              1024,
+              1026,
+              1029,
+              1280,
+              61184
+            ]
+          }
+        },
+        "learnmode": {
+          "instruction": {
+            "en": "Hold the device reset/pair button ~5 seconds until the LED blinks."
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "batteryThreshold",
+          "type": "number",
+          "label": {
+            "en": "Battery Low Alarm Threshold (%)"
+          },
+          "hint": {
+            "en": "Triggers battery alarm when percentage drops below this value."
+          },
+          "value": 20,
+          "attr": {
+            "step": 1,
+            "min": 1,
+            "max": 99
+          }
+        },
+        {
+          "id": "radar_sensitivity",
+          "type": "number",
+          "label": {
+            "en": "Motion detection sensitivity"
+          },
+          "hint": {
+            "en": "Set detection sensitivity. Range: 1 (low) - 19 (high)."
+          },
+          "value": 10,
+          "attr": {
+            "min": 0,
+            "max": 19,
+            "step": 1
+          }
+        },
+        {
+          "id": "fading_time",
+          "type": "number",
+          "label": {
+            "en": "Fading time (seconds)"
+          },
+          "hint": {
+            "en": "Time to keep occupancy active after last detection."
+          },
+          "value": 30,
+          "attr": {
+            "min": 0,
+            "max": 28800,
+            "step": 10
+          }
+        },
+        {
+          "id": "illuminance_interval",
+          "type": "number",
+          "label": {
+            "en": "Illuminance interval (minutes)"
+          },
+          "hint": {
+            "en": "Light sensing sampling interval. 1–720 minutes."
+          },
+          "value": 30,
+          "attr": {
+            "min": 1,
+            "max": 720,
+            "step": 1
+          }
+        },
+        {
+          "id": "humidity_offset",
+          "type": "number",
+          "label": {
+            "en": "Humidity offset (%)"
+          },
+          "hint": {
+            "en": "Calibrate humidity. Range: -30 – 30%"
+          },
+          "value": 0,
+          "attr": {
+            "min": -30,
+            "max": 30,
+            "step": 1
+          }
+        },
+        {
+          "id": "indicator",
+          "type": "checkbox",
+          "label": {
+            "en": "LED indicator"
+          },
+          "hint": {
+            "en": "Enable/disable device indicator LED."
+          },
+          "value": true
+        },
+        {
+          "id": "temperature_offset",
+          "type": "number",
+          "label": {
+            "en": "Temperature offset (°C)"
+          },
+          "hint": {
+            "en": "Compensate a temperature offset. Range: -10 to 10, step 0.1"
+          },
+          "value": 0,
+          "attr": {
+            "min": -10,
+            "max": 10,
+            "step": 0.1
+          }
+        },
+        {
+          "id": "temperature_decimals",
+          "type": "radio",
+          "label": {
+            "en": "Temperature reporting decimals"
+          },
+          "value": "1",
+          "values": [
+            {
+              "id": "1",
+              "label": {
+                "en": "Report with 1 decimal (e.g. 21.4 °C)"
+              }
+            },
+            {
+              "id": "2",
+              "label": {
+                "en": "Report with 2 decimals (e.g. 21.37 °C)"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "outdoor_2_socket",
       "name": {
         "en": "Outdoor Smart Socket"
@@ -4118,6 +4324,11 @@
         "measure_battery",
         "measure_voltage"
       ],
+      "energy": {
+        "batteries": [
+          "CR123A"
+        ]
+      },
       "images": {
         "large": "/drivers/rainsensor/assets/images/large.png",
         "small": "/drivers/rainsensor/assets/images/small.png"

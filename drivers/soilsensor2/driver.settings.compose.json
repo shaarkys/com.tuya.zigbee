@@ -1,0 +1,73 @@
+[
+  {
+    "id": "soil_moisture_calibration",
+    "type": "number",
+    "label": { "en": "Soil moisture calibration (%)" },
+    "hint": { "en": "Offset applied to the reported soil moisture value. Range -30 to 30." },
+    "min": -30,
+    "max": 30,
+    "step": 1,
+    "value": 0
+  },
+  {
+    "id": "temperature_calibration",
+    "type": "number",
+    "label": { "en": "Temperature calibration (°C)" },
+    "hint": { "en": "Adjust reported temperature by ±2 °C in 0.1 °C steps." },
+    "min": -2,
+    "max": 2,
+    "step": 0.1,
+    "value": 0
+  },
+  {
+    "id": "humidity_calibration",
+    "type": "number",
+    "label": { "en": "Humidity calibration (%)" },
+    "hint": { "en": "Adjust reported ambient humidity by ±30%." },
+    "min": -30,
+    "max": 30,
+    "step": 1,
+    "value": 0
+  },
+  {
+    "id": "display_unit",
+    "type": "radio",
+    "label": { "en": "Display temperature unit" },
+    "hint": { "en": "Choose whether the sensor should display Celsius or Fahrenheit." },
+    "values": [
+      { "id": "celsius", "label": { "en": "Celsius (°C)" } },
+      { "id": "fahrenheit", "label": { "en": "Fahrenheit (°F)" } }
+    ],
+    "value": "celsius"
+  },
+  {
+    "id": "alarm_soil_moisture_min",
+    "type": "number",
+    "label": { "en": "Alarm soil moisture minimum (%)" },
+    "hint": { "en": "Moisture level that should trigger the dry alarm." },
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "value": 0
+  },
+  {
+    "id": "temperature_sampling",
+    "type": "number",
+    "label": { "en": "Temperature sampling interval (s)" },
+    "hint": { "en": "How often the sensor samples temperature, 5-3600 seconds." },
+    "min": 5,
+    "max": 3600,
+    "step": 1,
+    "value": 60
+  },
+  {
+    "id": "soil_moisture_sampling",
+    "type": "number",
+    "label": { "en": "Soil moisture sampling interval (s)" },
+    "hint": { "en": "How often the sensor samples soil moisture, 5-3600 seconds." },
+    "min": 5,
+    "max": 3600,
+    "step": 1,
+    "value": 60
+  }
+]

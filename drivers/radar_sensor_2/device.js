@@ -65,10 +65,11 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
   }
   async onNodeInit({ zclNode }) {
 
-    zclNode.endpoints[1].clusters.tuya.on("response", (response) => {
+    this._onTuyaResponse = (response) => {
       //this.log('Response event received:', response); // Added for debugging
       this.updatePosition(response);
-    });
+    };
+    zclNode.endpoints[1].clusters.tuya.on("response", this._onTuyaResponse);
 
     // Register the flow trigger card for target distance
     this.targetDistanceTrigger = this.homey.flow.getDeviceTriggerCard('target_distance_changed');
@@ -121,8 +122,9 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
   }
 
   onDeleted() {
-    if (this.zclNode && this.zclNode.endpoints[1].clusters.tuya) {
-      this.zclNode.endpoints[1].clusters.tuya.removeListener("response", this.updatePosition);
+    if (this.zclNode && this.zclNode.endpoints[1].clusters.tuya && this._onTuyaResponse) {
+      this.zclNode.endpoints[1].clusters.tuya.removeListener("response", this._onTuyaResponse);
+      this._onTuyaResponse = null;
     }
     this.log("Radar sensor removed");
   }

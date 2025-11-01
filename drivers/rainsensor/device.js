@@ -184,7 +184,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
         return;        // success
       } catch (err) {
         lastErr = err;
-        this.warn(`write dp 0x${dp.toString(16)} attempt ${attempt} failed: ${err?.message || err}`);
+        this.log(`write dp 0x${dp.toString(16)} attempt ${attempt} failed: ${err?.message || err}`);
         if (attempt < tries) await this._sleep(SETTINGS_RETRY_DELAY_MS * attempt);
       }
     }

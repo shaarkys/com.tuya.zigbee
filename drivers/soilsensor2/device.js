@@ -1,11 +1,14 @@
 'use strict';
 
-const { Cluster } = require('zigbee-clusters');
+const { Cluster, CLUSTER } = require('zigbee-clusters');
 
 const TuyaSpecificCluster = require('../../lib/TuyaSpecificCluster');
 const TuyaSpecificClusterDevice = require('../../lib/TuyaSpecificClusterDevice');
 const { getDataValue } = require('../../lib/TuyaHelpers');
-const { V2_SOIL_SENSOR_DATA_POINTS: DP } = require('../../lib/TuyaDataPoints');
+const {
+  V1_SOIL_SENSOR_DATA_POINTS: DP_V1,
+  V2_SOIL_SENSOR_DATA_POINTS: DP_V2,
+} = require('../../lib/TuyaDataPoints');
 
 Cluster.addCluster(TuyaSpecificCluster);
 
@@ -22,9 +25,15 @@ const DISPLAY_UNIT_VALUE = {
 class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   _displayUnit = 'celsius';
+  _displayUnitDp = DP_V2.displayUnit;
   _lastDryFromDevice = null;
   _lastSoilMoisture = undefined;
   _lastTemperatureRaw = undefined;
+  _supportsV1 = false;
+  _supportsV2 = false;
+  _hasZclTemperature = false;
+  _hasZclHumidity = false;
+  _hasZclBattery = false;
 
   async onNodeInit({ zclNode }) {
     await super.onNodeInit({ zclNode });
@@ -38,6 +47,8 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
       this.error('Missing endpoint 1 on node');
       return;
     }
+
+    this._registerZclCapabilities(endpoint);
 
     const tuyaCluster = endpoint.clusters?.tuya;
     if (tuyaCluster) {
@@ -67,6 +78,56 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     }
   }
 
+  _registerZclCapabilities(endpoint) {
+    if (endpoint.clusters?.temperatureMeasurement) {
+      try {
+        this.registerCapability('measure_temperature', CLUSTER.TEMPERATURE_MEASUREMENT, {
+          get: 'measuredValue',
+          report: 'measuredValue',
+          reportParser: value => (typeof value === 'number' ? value / 100 : null),
+          getOpts: { getOnStart: true, getOnOnline: true },
+        });
+        this._hasZclTemperature = true;
+      } catch (err) {
+        this.log('TemperatureMeasurement registration failed:', err?.message || err);
+        this._hasZclTemperature = false;
+      }
+    }
+
+    if (endpoint.clusters?.relativeHumidity) {
+      try {
+        this.registerCapability('measure_humidity', CLUSTER.RELATIVE_HUMIDITY_MEASUREMENT, {
+          get: 'measuredValue',
+          report: 'measuredValue',
+          reportParser: value => {
+            if (typeof value !== 'number') return null;
+            return Math.max(0, Math.min(100, value / 100));
+          },
+          getOpts: { getOnStart: true, getOnOnline: true },
+        });
+        this._hasZclHumidity = true;
+      } catch (err) {
+        this.log('RelativeHumidity registration failed:', err?.message || err);
+        this._hasZclHumidity = false;
+      }
+    }
+
+    if (endpoint.clusters?.powerConfiguration) {
+      try {
+        this.registerCapability('measure_battery', CLUSTER.POWER_CONFIGURATION, {
+          get: 'batteryPercentageRemaining',
+          report: 'batteryPercentageRemaining',
+          reportParser: value => (typeof value === 'number' ? Math.round(value / 2) : null),
+          getOpts: { getOnStart: true, getOnOnline: true },
+        });
+        this._hasZclBattery = true;
+      } catch (err) {
+        this.log('PowerConfiguration registration failed:', err?.message || err);
+        this._hasZclBattery = false;
+      }
+    }
+  }
+
   _handleTuyaDatapoint(dpValue) {
     const dp = dpValue?.dp;
     if (typeof dp !== 'number') return;
@@ -75,44 +136,79 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     this.debug('Tuya DP', dp, 'value', value);
 
     switch (dp) {
-      case DP.dryAlarm:
+      case DP_V2.dryAlarm:
+        this._supportsV2 = true;
         this._updateDryAlarm(value);
         break;
-      case DP.soilMoisture:
+      case DP_V2.soilMoisture:
+        this._supportsV2 = true;
         this._updateSoilMoisture(value);
         break;
-      case DP.temperature:
+      case DP_V2.temperature:
+        this._supportsV2 = true;
         this._updateTemperature(value);
         break;
-      case DP.humidity:
-        this._updateHumidity(value);
+      case DP_V2.humidity:
+        this._supportsV2 = true;
+        this._updateAmbientHumidity(value);
         break;
-      case DP.batteryPercentage:
+      case DP_V2.batteryPercentage:
+        this._supportsV2 = true;
         this._updateBattery(value);
         break;
-      case DP.soilMoistureCalibration:
+      case DP_V2.soilMoistureCalibration:
+        this._supportsV2 = true;
         this._updateSettingFromDevice('soil_moisture_calibration', this._toSigned(value));
         break;
-      case DP.temperatureCalibration:
+      case DP_V2.temperatureCalibration:
+        this._supportsV2 = true;
         this._updateSettingFromDevice('temperature_calibration', this._toSigned(value) / 10);
         break;
-      case DP.humidityCalibration:
+      case DP_V2.humidityCalibration:
+        this._supportsV2 = true;
         this._updateSettingFromDevice('humidity_calibration', this._toSigned(value));
         break;
-      case DP.displayUnit:
-        this._updateDisplayUnit(value);
+      case DP_V2.displayUnit:
+        this._supportsV2 = true;
+        this._updateDisplayUnit(value, DP_V2.displayUnit);
         break;
-      case DP.alarmSoilMoistureMin:
+      case DP_V2.alarmSoilMoistureMin:
+        this._supportsV2 = true;
         this._updateSettingFromDevice('alarm_soil_moisture_min', Number(value));
         if (this._lastDryFromDevice === null) {
           this._maybeUpdateDryAlarm();
         }
         break;
-      case DP.temperatureSampling:
+      case DP_V2.temperatureSampling:
+        this._supportsV2 = true;
         this._updateSettingFromDevice('temperature_sampling', Number(value));
         break;
-      case DP.soilMoistureSampling:
+      case DP_V2.soilMoistureSampling:
+        this._supportsV2 = true;
         this._updateSettingFromDevice('soil_moisture_sampling', Number(value));
+        break;
+      case DP_V1.humidity:
+        this._supportsV1 = true;
+        this._updateSoilMoisture(value);
+        if (!this._supportsV2 && !this._hasZclHumidity) {
+          this._updateAmbientHumidity(value, true);
+        }
+        break;
+      case DP_V1.temperature:
+        this._supportsV1 = true;
+        this._updateTemperature(value);
+        break;
+      case DP_V1.temperatureUnit:
+        this._supportsV1 = true;
+        this._updateDisplayUnit(value, DP_V1.temperatureUnit);
+        break;
+      case DP_V1.batteryState:
+        this._supportsV1 = true;
+        this._updateBatteryState(value);
+        break;
+      case DP_V1.batteryPercentage:
+        this._supportsV1 = true;
+        this._updateBattery(value);
         break;
       default:
         this.log('Unhandled Tuya datapoint', dp, value);
@@ -124,7 +220,7 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     this._lastDryFromDevice = dry;
 
     if (this.hasCapability('alarm_water')) {
-      this.setCapabilityValue('alarm_water', !dry).catch(this.error);
+      this.setCapabilityValue('alarm_water', dry).catch(this.error);
     }
   }
 
@@ -150,17 +246,16 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
     this._lastTemperatureRaw = value;
 
-    const scaled = value / 10;
-    const celsius = this._displayUnit === 'fahrenheit'
-      ? (scaled - 32) * (5 / 9)
-      : scaled;
+    const celsius = value / 10;
 
     if (this.hasCapability('measure_temperature')) {
       this.setCapabilityValue('measure_temperature', Number(celsius.toFixed(2))).catch(this.error);
     }
   }
 
-  _updateHumidity(raw) {
+  _updateAmbientHumidity(raw, force = false) {
+    if (this._hasZclHumidity && !force) return;
+
     const value = Number(raw);
     if (!Number.isFinite(value)) return;
 
@@ -185,7 +280,18 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     }
   }
 
-  _updateDisplayUnit(raw) {
+  _updateBatteryState(raw) {
+    if (!this.hasCapability('alarm_battery')) return;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return;
+    const low = value <= 1;
+    this.setCapabilityValue('alarm_battery', low).catch(this.error);
+  }
+
+  _updateDisplayUnit(raw, dpId) {
+    if (typeof dpId === 'number') {
+      this._displayUnitDp = dpId;
+    }
     const unit = DISPLAY_UNIT_MAP[Number(raw)] || 'celsius';
     this._displayUnit = unit;
     this._updateSettingFromDevice('display_unit', unit);
@@ -211,12 +317,11 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
     const threshold = Number(this.getSetting('alarm_soil_moisture_min')) || 0;
     if (threshold <= 0) {
-      this.setCapabilityValue('alarm_water', false).catch(this.error);
       return;
     }
 
     const dry = currentMoisture <= threshold;
-    this.setCapabilityValue('alarm_water', !dry).catch(this.error);
+    this.setCapabilityValue('alarm_water', dry).catch(this.error);
   }
 
   _toSigned(value) {
@@ -238,18 +343,33 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     for (const key of changedKeys) {
       switch (key) {
         case 'soil_moisture_calibration':
-          tasks.push(this.writeData32(DP.soilMoistureCalibration, this._toUnsigned16(newSettings[key])));
+          if (this._supportsV1 && !this._supportsV2) {
+            this.log('Skipping soil_moisture_calibration write: device reports legacy datapoints only.');
+            break;
+          }
+          tasks.push(this.writeData32(DP_V2.soilMoistureCalibration, this._toUnsigned16(newSettings[key])));
           break;
         case 'temperature_calibration':
-          tasks.push(this.writeData32(DP.temperatureCalibration, this._toUnsigned16(newSettings[key] * 10)));
+          if (this._supportsV1 && !this._supportsV2) {
+            this.log('Skipping temperature_calibration write: device reports legacy datapoints only.');
+            break;
+          }
+          tasks.push(this.writeData32(DP_V2.temperatureCalibration, this._toUnsigned16(newSettings[key] * 10)));
           break;
         case 'humidity_calibration':
-          tasks.push(this.writeData32(DP.humidityCalibration, this._toUnsigned16(newSettings[key])));
+          if (this._supportsV1 && !this._supportsV2) {
+            this.log('Skipping humidity_calibration write: device reports legacy datapoints only.');
+            break;
+          }
+          tasks.push(this.writeData32(DP_V2.humidityCalibration, this._toUnsigned16(newSettings[key])));
           break;
         case 'display_unit': {
           const enumValue = DISPLAY_UNIT_VALUE[newSettings[key]] ?? 0;
+          const targetDp = (this._supportsV1 && !this._supportsV2)
+            ? DP_V1.temperatureUnit
+            : (this._displayUnitDp || DP_V2.displayUnit);
           tasks.push(
-            this.writeEnum(DP.displayUnit, enumValue)
+            this.writeEnum(targetDp, enumValue)
               .then(() => {
                 this._displayUnit = newSettings[key];
                 if (typeof this._lastTemperatureRaw === 'number') {
@@ -260,7 +380,14 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
           break;
         }
         case 'alarm_soil_moisture_min':
-          tasks.push(this.writeData32(DP.alarmSoilMoistureMin, Number(newSettings[key])));
+          if (this._supportsV1 && !this._supportsV2) {
+            if (this._lastDryFromDevice === null) {
+              this._maybeUpdateDryAlarm();
+            }
+            this.log('Skipping alarm_soil_moisture_min write: device reports legacy datapoints only.');
+            break;
+          }
+          tasks.push(this.writeData32(DP_V2.alarmSoilMoistureMin, Number(newSettings[key])));
           tasks.push(Promise.resolve().then(() => {
             if (this._lastDryFromDevice === null) {
               this._maybeUpdateDryAlarm();
@@ -268,10 +395,18 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
           }));
           break;
         case 'temperature_sampling':
-          tasks.push(this.writeData32(DP.temperatureSampling, Number(newSettings[key])));
+          if (this._supportsV1 && !this._supportsV2) {
+            this.log('Skipping temperature_sampling write: device reports legacy datapoints only.');
+            break;
+          }
+          tasks.push(this.writeData32(DP_V2.temperatureSampling, Number(newSettings[key])));
           break;
         case 'soil_moisture_sampling':
-          tasks.push(this.writeData32(DP.soilMoistureSampling, Number(newSettings[key])));
+          if (this._supportsV1 && !this._supportsV2) {
+            this.log('Skipping soil_moisture_sampling write: device reports legacy datapoints only.');
+            break;
+          }
+          tasks.push(this.writeData32(DP_V2.soilMoistureSampling, Number(newSettings[key])));
           break;
         default:
           break;

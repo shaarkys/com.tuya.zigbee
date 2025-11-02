@@ -66,7 +66,7 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
         'attributeReportingStatus',
       ]);
     } catch (err) {
-      this.error('Error when reading device attributes', err);
+      this.log('Device attribute read failed (probably sleeping):', err?.message || err);
     }
   }
 
@@ -183,14 +183,6 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
         this.setCapabilityValue('alarm_battery', low).catch(this.error);
       }
     }
-  }
-
-  _updateBatteryState(raw) {
-    if (!this.hasCapability('alarm_battery')) return;
-    const value = Number(raw);
-    if (!Number.isFinite(value)) return;
-    const low = value <= 1;
-    this.setCapabilityValue('alarm_battery', low).catch(this.error);
   }
 
   _updateDisplayUnit(raw, dpId) {

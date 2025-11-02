@@ -22,6 +22,11 @@ const DISPLAY_UNIT_VALUE = {
   fahrenheit: 1,
 };
 
+const CAP_MEASURE_MOISTURE = 'measure_moisture';
+const CAP_ALARM_MOISTURE = 'alarm_moisture';
+const CAP_OLD_SOIL_MOISTURE = 'soil_moisture';
+const CAP_OLD_ALARM_MOISTURE = 'alarm_water';
+
 class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   _displayUnit = 'celsius';
@@ -37,6 +42,8 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   async onNodeInit({ zclNode }) {
     await super.onNodeInit({ zclNode });
+
+    await this._migrateCapabilities();
 
     this._displayUnit = this.getSetting('display_unit') || 'celsius';
 
@@ -219,8 +226,8 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     const dry = !!raw;
     this._lastDryFromDevice = dry;
 
-    if (this.hasCapability('alarm_water')) {
-      this.setCapabilityValue('alarm_water', dry).catch(this.error);
+    if (this.hasCapability(CAP_ALARM_MOISTURE)) {
+      this.setCapabilityValue(CAP_ALARM_MOISTURE, dry).catch(this.error);
     }
   }
 
@@ -230,9 +237,9 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
     this._lastSoilMoisture = value;
 
-    if (this.hasCapability('soil_moisture')) {
+    if (this.hasCapability(CAP_MEASURE_MOISTURE)) {
       const clamped = Math.max(0, Math.min(100, value));
-      this.setCapabilityValue('soil_moisture', clamped).catch(this.error);
+      this.setCapabilityValue(CAP_MEASURE_MOISTURE, clamped).catch(this.error);
     }
 
     if (this._lastDryFromDevice === null) {
@@ -312,7 +319,7 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
   }
 
   _maybeUpdateDryAlarm(currentMoisture = this._lastSoilMoisture) {
-    if (!this.hasCapability('alarm_water')) return;
+    if (!this.hasCapability(CAP_ALARM_MOISTURE)) return;
     if (!Number.isFinite(currentMoisture)) return;
 
     const threshold = Number(this.getSetting('alarm_soil_moisture_min')) || 0;
@@ -321,7 +328,7 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     }
 
     const dry = currentMoisture <= threshold;
-    this.setCapabilityValue('alarm_water', dry).catch(this.error);
+    this.setCapabilityValue(CAP_ALARM_MOISTURE, dry).catch(this.error);
   }
 
   _toSigned(value) {
@@ -418,6 +425,54 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   onDeleted() {
     this.log('Soil sensor removed');
+  }
+
+  async _migrateCapabilities() {
+    await this._ensureCapability(CAP_MEASURE_MOISTURE);
+    await this._ensureCapability(CAP_ALARM_MOISTURE);
+
+    const oldMoisture = this.getCapabilityValue(CAP_OLD_SOIL_MOISTURE);
+    if (this.hasCapability(CAP_MEASURE_MOISTURE) && oldMoisture !== null && oldMoisture !== undefined) {
+      try {
+        await this.setCapabilityValue(CAP_MEASURE_MOISTURE, oldMoisture);
+      } catch (err) {
+        this.error('Failed to copy soil moisture value:', err);
+      }
+    }
+
+    const oldAlarm = this.getCapabilityValue(CAP_OLD_ALARM_MOISTURE);
+    if (this.hasCapability(CAP_ALARM_MOISTURE) && oldAlarm !== null && oldAlarm !== undefined) {
+      try {
+        await this.setCapabilityValue(CAP_ALARM_MOISTURE, oldAlarm);
+      } catch (err) {
+        this.error('Failed to copy soil moisture alarm value:', err);
+      }
+    }
+
+    if (this.hasCapability(CAP_OLD_SOIL_MOISTURE)) {
+      try {
+        await this.removeCapability(CAP_OLD_SOIL_MOISTURE);
+      } catch (err) {
+        this.error('Failed to remove legacy soil_moisture capability:', err);
+      }
+    }
+
+    if (this.hasCapability(CAP_OLD_ALARM_MOISTURE)) {
+      try {
+        await this.removeCapability(CAP_OLD_ALARM_MOISTURE);
+      } catch (err) {
+        this.error('Failed to remove legacy alarm_water capability:', err);
+      }
+    }
+  }
+
+  async _ensureCapability(capabilityId) {
+    if (this.hasCapability(capabilityId)) return;
+    try {
+      await this.addCapability(capabilityId);
+    } catch (err) {
+      this.error(`Failed to add capability ${capabilityId}:`, err);
+    }
   }
 }
 

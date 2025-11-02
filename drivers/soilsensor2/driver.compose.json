@@ -12,12 +12,12 @@
     "zigbee"
   ],
   "capabilities": [
-    "soil_moisture",
+    "measure_moisture",
     "measure_temperature",
     "measure_humidity",
     "measure_battery",
     "alarm_battery",
-    "alarm_water"
+    "alarm_moisture"
   ],
   "images": {
     "large": "{{driverAssetsPath}}/images/large.png",
@@ -29,7 +29,7 @@
       "usageOff": 0
     },
     "batteries": [
-      "AAA"
+      "AAA","AAA"
     ]
   },
   "zigbee": {

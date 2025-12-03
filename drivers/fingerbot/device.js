@@ -9,7 +9,7 @@ const { Cluster, CLUSTER } = require("zigbee-clusters");
 const TuyaSpecificCluster = require("../../lib/TuyaSpecificCluster");
 const TuyaOnOffCluster = require("../../lib/TuyaOnOffCluster");
 const TuyaSpecificClusterDevice = require("../../lib/TuyaSpecificClusterDevice");
-const { getDataValue } = require("../../lib/TuyaHelpers");
+const { getDataValue, convertMultiByteNumberPayloadToSingleDecimalNumber } = require("../../lib/TuyaHelpers");
 const { V1_FINGER_BOT_DATA_POINTS } = require("../../lib/TuyaDataPoints");
 
 /*  Register extra Tuya clusters with zigbee-clusters            */
@@ -89,6 +89,11 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
     const tuyaCluster = zclNode.endpoints[1].clusters.tuya;
     tuyaCluster.on("reporting", (value) => this._handleTuyaDp(value));
     tuyaCluster.on("response", (value) => this._handleTuyaDp(value));
+    try {
+      await tuyaCluster.dataQuery();
+    } catch (err) {
+      this.log("Tuya dataQuery failed (device may not support it):", err?.message || err);
+    }
 
     this.log("🚀 Finger Bot initialised!");
   }
@@ -96,8 +101,8 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
   /* ───────────────  Settings → Device  ─────────────── */
   async _sendSettingsToDevice() {
     const reverse = this.getSetting("reverse") ?? false;
-    const lowerLimit = this.getSetting("lower_limit") ?? 50;
-    const upperLimit = this.getSetting("upper_limit") ?? 100;
+    const lowerLimit = this.getSetting("lower_limit") ?? 100; // down movement limit (0x66) expected 50..100%
+    const upperLimit = this.getSetting("upper_limit") ?? 0;   // up movement limit (0x6a) expected 0..50%
     const delay = this.getSetting("delay") ?? 1;
     const touch = this.getSetting("touch") ?? false;
 
@@ -133,7 +138,19 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
       case V1_FINGER_BOT_DATA_POINTS.battery:
       case 0x04:
       case 0x69: {
-        const pct = Math.max(0, Math.min(100, Number(parsed)));
+        let rawPct = Number(parsed);
+        if (!Number.isFinite(rawPct)) {
+          const buf = Buffer.isBuffer(parsed) ? parsed : Buffer.isBuffer(dpFrame?.data) ? dpFrame.data : null;
+          const arr = buf ? [...buf] : Array.isArray(parsed) ? parsed : Array.isArray(dpFrame?.data) ? dpFrame.data : null;
+          if (Array.isArray(arr)) {
+            rawPct = convertMultiByteNumberPayloadToSingleDecimalNumber(arr);
+          }
+        }
+        if (!Number.isFinite(rawPct)) {
+          this.log(`Battery via Tuya DP 0x${dp.toString(16)} unparsed:`, parsed);
+          break;
+        }
+        const pct = Math.max(0, Math.min(100, rawPct));
         this.log(`Battery via Tuya DP 0x${dp.toString(16)}:`, pct);
         await this.setCapabilityValue("measure_battery", pct).catch(this.error);
         break;

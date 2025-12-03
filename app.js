@@ -1,5 +1,7 @@
 'use strict';
 
+require('./lib/zigbeeLogEnhancer');
+
 const Homey = require('homey');
 const { debug } = require('zigbee-clusters');
 debug(true);

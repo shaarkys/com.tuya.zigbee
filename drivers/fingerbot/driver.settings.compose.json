@@ -59,6 +59,18 @@
         },
         "hint": {
             "en": "Enable touch control for the Finger Bot."
-        }
+        },
+        "value": false
+    },
+    {
+        "id": "firmware_version",
+        "type": "text",
+        "label": {
+            "en": "Firmware version"
+        },
+        "hint": {
+            "en": "Detected from Zigbee Basic cluster (swBuildId/appVersion)."
+        },
+        "value": "unknown"
     }
 ]

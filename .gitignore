@@ -81,3 +81,5 @@ typings
 .idea/
 /node_modules
 /node_modules
+AGENTS.md
+temp_fingerbot.txt

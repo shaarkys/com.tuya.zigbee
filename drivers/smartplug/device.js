@@ -7,6 +7,86 @@ const TuyaOnOffCluster = require('../../lib/TuyaOnOffCluster');
 Cluster.addCluster(TuyaOnOffCluster);
 
 class smartplug extends ZigBeeDevice {
+  _clearPollingIntervals() {
+    if (this._measurementPollInterval) {
+      this.homey.clearInterval(this._measurementPollInterval);
+      this._measurementPollInterval = null;
+    }
+    if (this._meteringPollInterval) {
+      this.homey.clearInterval(this._meteringPollInterval);
+      this._meteringPollInterval = null;
+    }
+  }
+
+  _getFallbackIdentity() {
+    const data = typeof this.getData === 'function' ? this.getData() : {};
+    return {
+      manufacturerName: data?.manufacturerName || null,
+      modelId: data?.modelId || null,
+    };
+  }
+
+  _isTS0121MeasurementPollingDevice() {
+    return ['TS0121', 'TSO121'].includes(this.modelId);
+  }
+
+  _isEnergyPollingOnlyDevice() {
+    return this.manufacturerName === '_TZ3000_cehuw1lw';
+  }
+
+  _getElectricalMeasurementPollIntervalMs() {
+    return Math.max(10000, Math.min(this.minReportPower, this.minReportCurrent, this.minReportVoltage));
+  }
+
+  _getMeteringPollIntervalMs() {
+    return 300000;
+  }
+
+  async _pollElectricalMeasurementCluster() {
+    try {
+      const attrs = await this.zclNode.endpoints[1].clusters.electricalMeasurement.readAttributes(['activePower', 'rmsCurrent', 'rmsVoltage']);
+
+      if (typeof attrs.activePower === 'number') {
+        await this.setCapabilityValue('measure_power', (attrs.activePower * this.measureOffset) / 100).catch(this.error);
+      }
+      if (typeof attrs.rmsCurrent === 'number') {
+        await this.setCapabilityValue('measure_current', attrs.rmsCurrent / 1000).catch(this.error);
+      }
+      if (typeof attrs.rmsVoltage === 'number') {
+        await this.setCapabilityValue('measure_voltage', attrs.rmsVoltage).catch(this.error);
+      }
+    } catch (err) {
+      this.error('Electrical measurement poll failed', err);
+    }
+  }
+
+  async _pollMeteringCluster() {
+    try {
+      const attrs = await this.zclNode.endpoints[1].clusters.metering.readAttributes(['currentSummationDelivered']);
+      if (typeof attrs.currentSummationDelivered === 'number') {
+        await this.setCapabilityValue('meter_power', (attrs.currentSummationDelivered * this.meteringOffset) / 100.0).catch(this.error);
+      }
+    } catch (err) {
+      this.error('Metering poll failed', err);
+    }
+  }
+
+  _scheduleFallbackPolling() {
+    this._clearPollingIntervals();
+
+    if (this._isTS0121MeasurementPollingDevice()) {
+      const electricalIntervalMs = this._getElectricalMeasurementPollIntervalMs();
+      const meteringIntervalMs = this._getMeteringPollIntervalMs();
+      this._measurementPollInterval = this.homey.setInterval(() => this._pollElectricalMeasurementCluster(), electricalIntervalMs);
+      this._meteringPollInterval = this.homey.setInterval(() => this._pollMeteringCluster(), meteringIntervalMs);
+      return;
+    }
+
+    if (this._isEnergyPollingOnlyDevice()) {
+      const meteringIntervalMs = this._getMeteringPollIntervalMs();
+      this._meteringPollInterval = this.homey.setInterval(() => this._pollMeteringCluster(), meteringIntervalMs);
+    }
+  }
 
   async onNodeInit({zclNode}) {
 
@@ -17,6 +97,11 @@ class smartplug extends ZigBeeDevice {
     this.minReportPower= this.getSetting('minReportPower') * 1000;
     this.minReportCurrent = this.getSetting('minReportCurrent') * 1000;
     this.minReportVoltage = this.getSetting('minReportVoltage') * 1000;
+
+    const basicCluster = zclNode.endpoints[1].clusters.basic;
+    const fallbackIdentity = this._getFallbackIdentity();
+    this.manufacturerName = fallbackIdentity.manufacturerName;
+    this.modelId = fallbackIdentity.modelId;
 
     if (!this.hasCapability('measure_current')) {
       await this.addCapability('measure_current').catch(this.error);;
@@ -29,8 +114,7 @@ class smartplug extends ZigBeeDevice {
     // onOff
     this.registerCapability('onoff', CLUSTER.ON_OFF, {
       getOpts: {
-        getOnStart: true,
-        pollInterval: 60000
+        getOnStart: true
 	    }
     });
 
@@ -81,8 +165,7 @@ class smartplug extends ZigBeeDevice {
       reportParser: value => (value * this.meteringOffset)/100.0,
       getParser: value => (value * this.meteringOffset)/100.0,
       getOpts: {
-        getOnStart: true,
-        pollInterval: 300000
+        getOnStart: true
 	    }
     });
 
@@ -92,8 +175,7 @@ class smartplug extends ZigBeeDevice {
         return (value * this.measureOffset)/100;
       },
       getOpts: {
-        getOnStart: true,
-        pollInterval: this.minReportPower
+        getOnStart: true
 	    }
     });
 
@@ -102,8 +184,7 @@ class smartplug extends ZigBeeDevice {
         return value/1000;
       },
       getOpts: {
-        getOnStart: true,
-        pollInterval: this.minReportCurrent
+        getOnStart: true
       }
     });
 
@@ -112,15 +193,20 @@ class smartplug extends ZigBeeDevice {
         return value;
       },
       getOpts: {
-        getOnStart: true,
-        pollInterval: this.minReportVoltage
+        getOnStart: true
       }
     });
 
-    await zclNode.endpoints[1].clusters.basic.readAttributes(['manufacturerName', 'zclVersion', 'appVersion', 'modelId', 'powerSource', 'attributeReportingStatus'])
-    .catch(err => {
+    await basicCluster.readAttributes(['manufacturerName', 'zclVersion', 'appVersion', 'modelId', 'powerSource', 'attributeReportingStatus'])
+      .then((attrs) => {
+        this.manufacturerName = attrs?.manufacturerName || this.manufacturerName;
+        this.modelId = attrs?.modelId || this.modelId;
+      })
+      .catch(err => {
         this.error('Error when reading device attributes ', err);
-    });
+      });
+
+    this._scheduleFallbackPolling();
 
   }
 
@@ -129,11 +215,18 @@ class smartplug extends ZigBeeDevice {
   }
 
   onDeleted() {
+    this._clearPollingIntervals();
     this.log("Smart Plug removed")
   }
 
   async onSettings({oldSettings, newSettings, changedKeys}) {
     let parsedValue = 0;
+
+    this.meteringOffset = newSettings.metering_offset;
+    this.measureOffset = newSettings.measure_offset * 100;
+    this.minReportPower= newSettings.minReportPower * 1000;
+    this.minReportCurrent = newSettings.minReportCurrent * 1000;
+    this.minReportVoltage = newSettings.minReportVoltage * 1000;
 
     if (changedKeys.includes('relay_status')) {
       parsedValue = parseInt(newSettings.relay_status);
@@ -148,6 +241,10 @@ class smartplug extends ZigBeeDevice {
     if (changedKeys.includes('child_lock')) {
       parsedValue = parseInt(newSettings.child_lock);
       await this.zclNode.endpoints[1].clusters.onOff.writeAttributes({ childLock: parsedValue });
+    }
+
+    if (changedKeys.some((key) => ['metering_offset', 'measure_offset', 'minReportPower', 'minReportCurrent', 'minReportVoltage'].includes(key))) {
+      this._scheduleFallbackPolling();
     }
   }
 }

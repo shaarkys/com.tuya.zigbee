@@ -63,13 +63,33 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
     super(...args);
     this.lastDistanceUpdateTime = 0;
   }
+
+  _roundToSingleDecimal(value) {
+    return Math.round(value * 10) / 10;
+  }
+
+  async _syncSettingIfChanged(key, value) {
+    const current = this.getSetting(key);
+    if (current === value) return;
+
+    try {
+      await this.setSettings({ [key]: value });
+    } catch (err) {
+      this.error(`Failed to sync setting '${key}' from device report:`, err);
+    }
+  }
+
   async onNodeInit({ zclNode }) {
 
     this._onTuyaResponse = (response) => {
       //this.log('Response event received:', response); // Added for debugging
       this.updatePosition(response);
     };
+    this._onTuyaReporting = (report) => {
+      this.updatePosition(report);
+    };
     zclNode.endpoints[1].clusters.tuya.on("response", this._onTuyaResponse);
+    zclNode.endpoints[1].clusters.tuya.on("reporting", this._onTuyaReporting);
 
     // Register the flow trigger card for target distance
     this.targetDistanceTrigger = this.homey.flow.getDeviceTriggerCard('target_distance_changed');
@@ -95,11 +115,24 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
         break;
       case dataPoints.tshpscSensitivity:
         this.log("sensitivity state: " + value)
+        await this._syncSettingIfChanged('radar_sensitivity', value);
         break;
       case dataPoints.tshpsIlluminanceLux:
         this.log("lux value: " + value)
         this.onIlluminanceMeasuredAttributeReport(value)
         break;
+      case dataPoints.tshpsMinimumRange: {
+        const minimumRange = this._roundToSingleDecimal(value / 100);
+        this.log("minimum range: " + minimumRange)
+        await this._syncSettingIfChanged('minimum_range', minimumRange);
+        break;
+      }
+      case dataPoints.tshpsMaximumRange: {
+        const maximumRange = this._roundToSingleDecimal(value / 100);
+        this.log("maximum range: " + maximumRange)
+        await this._syncSettingIfChanged('maximum_range', maximumRange);
+        break;
+      }
       case dataPoints.tshpsTargetDistance:
         const currentTime = new Date().getTime();
         if (currentTime - this.lastDistanceUpdateTime >= distanceUpdateInterval * 1000) {
@@ -116,6 +149,18 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
           }
         }
         break;
+      case dataPoints.tshpsFadingTime: {
+        const fadingTime = this._roundToSingleDecimal(value / 10);
+        this.log("fading time: " + fadingTime)
+        await this._syncSettingIfChanged('fading_time', fadingTime);
+        break;
+      }
+      case dataPoints.tshpsDetectionDelay: {
+        const detectionDelay = this._roundToSingleDecimal(value / 10);
+        this.log("detection delay: " + detectionDelay)
+        await this._syncSettingIfChanged('detection_delay', detectionDelay);
+        break;
+      }
       default:
         this.log('dp value', dp, value)
     }
@@ -125,6 +170,10 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
     if (this.zclNode && this.zclNode.endpoints[1].clusters.tuya && this._onTuyaResponse) {
       this.zclNode.endpoints[1].clusters.tuya.removeListener("response", this._onTuyaResponse);
       this._onTuyaResponse = null;
+    }
+    if (this.zclNode && this.zclNode.endpoints[1].clusters.tuya && this._onTuyaReporting) {
+      this.zclNode.endpoints[1].clusters.tuya.removeListener("reporting", this._onTuyaReporting);
+      this._onTuyaReporting = null;
     }
     this.log("Radar sensor removed");
   }
@@ -143,11 +192,11 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
     }
 
     if (changedKeys.includes('detection_delay')) {
-      this.writeData32(dataPoints.tshpsDetectionDelay, newSettings['detection_delay'])
+      this.writeData32(dataPoints.tshpsDetectionDelay, Math.round(newSettings['detection_delay'] * 10))
     }
 
     if (changedKeys.includes('fading_time')) {
-      this.writeData32(dataPoints.tshpsFadingTime, newSettings['fading_time'])
+      this.writeData32(dataPoints.tshpsFadingTime, Math.round(newSettings['fading_time'] * 10))
     }
   }
 

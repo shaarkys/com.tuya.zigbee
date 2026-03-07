@@ -24,6 +24,10 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
   static _clickResetMinMs = 500;
   static _clickWatchdogIntervalMs = 1500;
 
+  getTuyaCommandName() {
+    return "sendData";
+  }
+
   /* ───────────────  Initialise  ─────────────── */
   async onNodeInit({ zclNode }) {
     /* always call super first */
@@ -35,11 +39,7 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
     /*  ON / OFF – use the standard Zigbee genOnOff cluster      */
     /*  (same trick as Johan Bendz’ “simple-plug” driver)        */
     /* --------------------------------------------------------- */
-    this.registerCapability("onoff", CLUSTER.ON_OFF, {
-      getOpts: {
-        getOnStart: true, // read state right after inclusion
-      },
-    });
+    this.registerCapability("onoff", CLUSTER.ON_OFF);
     this._clickResetTimer = null;
     this._clickWatchdog = this.homey.setInterval(() => this._runClickWatchdog(), FingerBotTuya._clickWatchdogIntervalMs);
 
@@ -47,27 +47,6 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
     if (onOffCluster && typeof onOffCluster.on === "function") {
       onOffCluster.on("attr.onOff", (value) => this._handleObservedOnOffState(!!value));
     }
-
-    /* --------------------------------------------------------- */
-    /*  Read a few basic attributes – purely diagnostic          */
-    /* --------------------------------------------------------- */
-    const basicCluster = zclNode.endpoints[1].clusters.basic;
-    let basicAttrs = {};
-    let swBuildAttrs = {};
-    try {
-      basicAttrs = await basicCluster.readAttributes(["manufacturerName", "zclVersion", "appVersion", "modelId", "powerSource", "attributeReportingStatus"]);
-    } catch (err) {
-      this.error("Error when reading basic attributes:", err);
-    }
-    try {
-      swBuildAttrs = await basicCluster.readAttributes(["swBuildId"]);
-      if (swBuildAttrs?.swBuildId) {
-        this.log("Finger Bot swBuildId:", swBuildAttrs.swBuildId);
-      }
-    } catch {
-      // Not all variants expose swBuildId.
-    }
-    await this._storeFirmwareVersion({ ...basicAttrs, ...swBuildAttrs });
 
     /* --------------------------------------------------------- */
     /*  MODE capability (click / switch / program)               */
@@ -96,37 +75,38 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
     }
 
     /* --------------------------------------------------------- */
-    /*  Apply stored settings to the device                      */
-    /* --------------------------------------------------------- */
-    await this._sendSettingsToDevice();
-
-    /* --------------------------------------------------------- */
     /*  Listen for Tuya DP reports/responses                     */
     /* --------------------------------------------------------- */
     const tuyaCluster = zclNode.endpoints[1].clusters.tuya;
     tuyaCluster.on("reporting", (value) => this._handleTuyaDp(value));
     tuyaCluster.on("response", (value) => this._handleTuyaDp(value));
-    try {
-      await tuyaCluster.dataQuery();
-    } catch (err) {
-      this.log("Tuya dataQuery failed (device may not support it):", err?.message || err);
-    }
 
     this.log("🚀 Finger Bot initialised!");
   }
 
   /* ───────────────  Settings → Device  ─────────────── */
-  async _sendSettingsToDevice() {
+  async _sendSettingsToDevice(changedKeys) {
     const { reverse, lower_limit, upper_limit, delay, touch } = await this._normalizeSettings();
-    const lowerLimit = lower_limit;
-    const upperLimit = upper_limit;
+    const requestedKeys = Array.isArray(changedKeys) && changedKeys.length > 0
+      ? new Set(changedKeys)
+      : new Set(["reverse", "lower_limit", "upper_limit", "delay", "touch"]);
 
     try {
-      await this.writeBool(V1_FINGER_BOT_DATA_POINTS.reverse, reverse);
-      await this.writeData32(V1_FINGER_BOT_DATA_POINTS.lowerLimit, lowerLimit);
-      await this.writeData32(V1_FINGER_BOT_DATA_POINTS.upperLimit, upperLimit);
-      await this.writeData32(V1_FINGER_BOT_DATA_POINTS.delay, delay);
-      await this.writeBool(V1_FINGER_BOT_DATA_POINTS.touch, touch);
+      if (requestedKeys.has("reverse")) {
+        await this.writeBool(V1_FINGER_BOT_DATA_POINTS.reverse, reverse);
+      }
+      if (requestedKeys.has("lower_limit")) {
+        await this.writeData32(V1_FINGER_BOT_DATA_POINTS.lowerLimit, lower_limit);
+      }
+      if (requestedKeys.has("upper_limit")) {
+        await this.writeData32(V1_FINGER_BOT_DATA_POINTS.upperLimit, upper_limit);
+      }
+      if (requestedKeys.has("delay")) {
+        await this.writeData32(V1_FINGER_BOT_DATA_POINTS.delay, delay);
+      }
+      if (requestedKeys.has("touch")) {
+        await this.writeBool(V1_FINGER_BOT_DATA_POINTS.touch, touch);
+      }
 
       this.log("Settings pushed to Finger Bot");
     } catch (e) {
@@ -380,7 +360,7 @@ class FingerBotTuya extends TuyaSpecificClusterDevice {
     if (Array.isArray(changedKeys) && changedKeys.length > 0 && changedKeys.every((key) => key === "firmware_version")) {
       return;
     }
-    await this._sendSettingsToDevice();
+    await this._sendSettingsToDevice(changedKeys);
   }
 
   /* ───────────────  Device removed  ─────────────── */

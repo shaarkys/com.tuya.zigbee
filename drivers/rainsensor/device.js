@@ -13,7 +13,10 @@ Cluster.addCluster(TuyaSpecificCluster);
    - Legacy firmware (e.g. _TZE200_jsaqgakf): rain 0x01, illuminance 0x66, sensitivity 0x67,
      illuminance_sampling 0x68, battery 0x69, keepalive 0x6d.
    - Hobeian ZG-223Z (_TZE200_u6x1zyv2): rain 0x01, illuminance 0x66, sensitivity 0x02,
-     illuminance_sampling 0x65, battery 0x68, keepalive 0x6d. */
+     illuminance_sampling 0x65, battery 0x68, keepalive 0x6d.
+   - TS0207 rain sensors (_TZ3210_tgvtvdoc, _TZ3210_p68kms0l): rain via IAS Zone,
+     battery 0x04, illuminance 0x65, 20 min average 0x66, daily max 0x67,
+     cleaning reminder 0x68, rain intensity 0x69. */
 const DP_SETS = {
   legacy: {
     RAIN_ENUM:             0x01,
@@ -31,7 +34,27 @@ const DP_SETS = {
     BATTERY_PCT:           0x68, // decimal 104
     KEEPALIVE:             0x6D,
   },
+  ts0207: {
+    BATTERY_PCT:                0x04,
+    ILLUMINANCE:                0x65, // decimal 101
+    ILLUMINANCE_AVERAGE_20MIN:  0x66, // decimal 102
+    ILLUMINANCE_MAX_TODAY:      0x67, // decimal 103
+    CLEANING_REMINDER:          0x68, // decimal 104
+    RAIN_INTENSITY:             0x69, // decimal 105
+  },
 };
+
+const TS0207_RAIN_MANUFACTURERS = new Set([
+  '_TZ3210_tgvtvdoc',
+  '_TZ3210_p68kms0l',
+]);
+
+const TS0207_ONLY_CAPABILITIES = [
+  'cleaning_reminder',
+  'measure_luminance_average_20min',
+  'measure_luminance_maximum_today',
+  'measure_rain_intensity',
+];
 
 /* Some firmware variants never echo these DPs back after a write. */
 const OPTIONAL_ACK_DP_KEYS = new Set([
@@ -78,9 +101,10 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
 
   _setDpSchema(name = 'legacy') {
     const prevSchema = this._dpSchemaName;
-    const map = DP_SETS[name] || DP_SETS.legacy;
+    const schemaName = Object.prototype.hasOwnProperty.call(DP_SETS, name) ? name : 'legacy';
+    const map = DP_SETS[schemaName];
     this._dp = map;
-    this._dpSchemaName = map === DP_SETS.hobeian ? 'hobeian' : 'legacy';
+    this._dpSchemaName = schemaName;
     this._optionalAck = new Set(
       [...OPTIONAL_ACK_DP_KEYS]
         .map(key => map[key])
@@ -103,7 +127,11 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     } catch (err) {
       this.debug('Basic attribute read failed while detecting DP schema:', err?.message || err);
     }
-    const schema = mf === '_TZE200_u6x1zyv2' ? 'hobeian' : 'legacy';
+    const schema = TS0207_RAIN_MANUFACTURERS.has(mf)
+      ? 'ts0207'
+      : mf === '_TZE200_u6x1zyv2'
+        ? 'hobeian'
+        : 'legacy';
     this._setDpSchema(schema);
   }
 
@@ -112,6 +140,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     this.printNode();
     this._deviceLabel = this._composeDeviceLabel();
     await this._detectDpSchema(zclNode);
+    await this._syncSchemaCapabilities();
 
     /* Request IAS zone status reports so we catch rain events promptly */
     try {
@@ -142,17 +171,21 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
       });
     } catch (e) { this.log('Battery % not available:', e?.message || e); }
 
-    /* Battery voltage (V) */
-    try {
-      this.registerCapability('measure_voltage', CLUSTER.POWER_CONFIGURATION, {
-        get: 'batteryVoltage',
-        report: 'batteryVoltage',
-        reportParser: v => (typeof v === 'number' ? v / 10 : null),
-        getOpts: { getOnStart: true, getOnOnline: true },
-      });
-    } catch (e) { this.log('Battery voltage not available:', e?.message || e); }
+    if (this._dpSchemaName !== 'ts0207') {
+      /* Battery voltage (V) */
+      try {
+        this.registerCapability('measure_voltage', CLUSTER.POWER_CONFIGURATION, {
+          get: 'batteryVoltage',
+          report: 'batteryVoltage',
+          reportParser: v => (typeof v === 'number' ? v / 10 : null),
+          getOpts: { getOnStart: true, getOnOnline: true },
+        });
+      } catch (e) { this.log('Battery voltage not available:', e?.message || e); }
+    } else {
+      this.log('Battery voltage cluster value is not used for TS0207 rain sensors.');
+    }
 
-    /* Illuminance — prefer ZCL cluster if present, else Tuya DP 0x66 */
+    /* Illuminance — prefer ZCL cluster if present, else Tuya EF00 datapoints */
     const ill = zclNode.endpoints[1]?.clusters?.illuminanceMeasurement;
     if (ill) {
       try {
@@ -171,7 +204,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
         this.log('IlluminanceMeasurement not usable, will rely on Tuya EF00:', e?.message || e);
       }
     } else {
-      this.log('IlluminanceMeasurement cluster missing; using Tuya EF00 DP 0x66 for lux.');
+      this.log('IlluminanceMeasurement cluster missing; using Tuya EF00 illuminance datapoint.');
     }
 
     /* Listen for Tuya EF00 reports/responses (also used to resolve acks) */
@@ -218,11 +251,16 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     }
 
     /* Send stored Tuya settings on init (with ack+retry) */
-    await this._sendSettingsToDevice();
+    if (this._supportsConfigWrites()) {
+      await this._sendSettingsToDevice();
+    } else {
+      this.log(`Skipping settings sync for ${this._dpSchemaName} rain sensor; no writable config DPs are known.`);
+    }
 
     /* Flow cards */
     this.homey.flow.getActionCard('set_rain_sensitivity')
       .registerRunListener(async ({ value }) => {
+        if (!this._supportsConfigWrites()) throw new Error('Sensitivity is not supported on this rain sensor model');
         const n = Number(value);
         if (!Number.isInteger(n) || n < 0 || n > 9) throw new Error('Sensitivity must be 0..9');
         // keep flow simple: single write (no repeat), users can retry the flow if needed
@@ -232,6 +270,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
 
     this.homey.flow.getActionCard('set_illuminance_sampling')
       .registerRunListener(async ({ minutes }) => {
+        if (!this._supportsConfigWrites()) throw new Error('Illuminance sampling is not supported on this rain sensor model');
         const n = Number(minutes);
         if (!Number.isInteger(n) || n < 1 || n > 480) throw new Error('Sampling must be 1..480 minutes');
         await this.writeData32(this._dp.ILLUMINANCE_SAMPLING, n);
@@ -306,7 +345,10 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
   async _handleTuyaDp(dpFrame) {
     const dp        = dpFrame?.dp;
     const parsed    = getDataValue(dpFrame);
-    if (this._dpSchemaName !== 'hobeian' && (dp === DP_SETS.hobeian.SENSITIVITY || dp === DP_SETS.hobeian.ILLUMINANCE_SAMPLING || dp === DP_SETS.hobeian.BATTERY_PCT)) {
+    if (this._dpSchemaName === 'legacy' && dp === DP_SETS.ts0207.BATTERY_PCT) {
+      this._setDpSchema('ts0207');
+    }
+    if (this._dpSchemaName === 'legacy' && (dp === DP_SETS.hobeian.SENSITIVITY || dp === DP_SETS.hobeian.ILLUMINANCE_SAMPLING || dp === DP_SETS.hobeian.BATTERY_PCT)) {
       this._setDpSchema('hobeian');
     }
     const map       = this._dp;
@@ -331,14 +373,13 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
         const luxRaw = Number(parsed);
         if (Number.isFinite(luxRaw)) {
           const lux = this._applyLuxCalibration(Math.max(0, Math.round(luxRaw)));
-          this.log(`[TuyaDP] ${deviceLbl} illuminance ${lux} lx (dp 0x66${txnInfo})`);
+          this.log(`[TuyaDP] ${deviceLbl} illuminance ${lux} lx (dp 0x${dp.toString(16)}${txnInfo})`);
           await this.setCapabilityValue('measure_luminance', lux).catch(this.error);
         }
         break;
       }
 
-      case map.BATTERY_PCT:
-      case 0x69: {
+      case map.BATTERY_PCT: {
         const pct = this._normalizeBattery(parsed, dpFrame);
         if (pct === null) {
           this.log(`[TuyaDP] ${deviceLbl} battery unparsed (dp 0x${dp?.toString(16)}${txnInfo}):`, parsed);
@@ -349,17 +390,56 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
         break;
       }
 
-      case map.KEEPALIVE:
-        // very chatty 0x00000000 frames - ignore but keep traceable
-        this.debug(`[TuyaDP] ${deviceLbl} keepalive (dp 0x6d${txnInfo})`);
-        break;
-
-      case map.SENSITIVITY:
-      case map.ILLUMINANCE_SAMPLING:
-        this.log(`[TuyaDP] ${deviceLbl} dp 0x${dp.toString(16)}${txnInfo}:`, parsed);
-        break;
-
       default:
+        if (Number.isInteger(map.KEEPALIVE) && dp === map.KEEPALIVE) {
+          // very chatty 0x00000000 frames - ignore but keep traceable
+          this.debug(`[TuyaDP] ${deviceLbl} keepalive (dp 0x${dp.toString(16)}${txnInfo})`);
+          break;
+        }
+
+        if (Number.isInteger(map.ILLUMINANCE_AVERAGE_20MIN) && dp === map.ILLUMINANCE_AVERAGE_20MIN) {
+          const lux = this._normalizeLuxValue(parsed);
+          if (lux !== null) {
+            this.log(`[TuyaDP] ${deviceLbl} illuminance avg 20 min ${lux} lx (dp 0x${dp.toString(16)}${txnInfo})`);
+            await this._setCapabilityIfPresent('measure_luminance_average_20min', lux);
+          }
+          break;
+        }
+
+        if (Number.isInteger(map.ILLUMINANCE_MAX_TODAY) && dp === map.ILLUMINANCE_MAX_TODAY) {
+          const lux = this._normalizeLuxValue(parsed);
+          if (lux !== null) {
+            this.log(`[TuyaDP] ${deviceLbl} illuminance max today ${lux} lx (dp 0x${dp.toString(16)}${txnInfo})`);
+            await this._setCapabilityIfPresent('measure_luminance_maximum_today', lux);
+          }
+          break;
+        }
+
+        if (Number.isInteger(map.CLEANING_REMINDER) && dp === map.CLEANING_REMINDER) {
+          const cleaningReminder = parsed === true || parsed === 1;
+          this.log(`[TuyaDP] ${deviceLbl} cleaning reminder ${cleaningReminder ? 'active' : 'clear'} (dp 0x${dp.toString(16)}${txnInfo})`);
+          await this._setCapabilityIfPresent('cleaning_reminder', cleaningReminder);
+          break;
+        }
+
+        if (Number.isInteger(map.RAIN_INTENSITY) && dp === map.RAIN_INTENSITY) {
+          const intensity = this._normalizeRainIntensity(parsed, dpFrame);
+          if (intensity !== null) {
+            this.log(`[TuyaDP] ${deviceLbl} rain intensity ${intensity} mV (dp 0x${dp.toString(16)}${txnInfo})`);
+            await this._setCapabilityIfPresent('measure_rain_intensity', intensity);
+            this._updateRainCapability(intensity > 100, 'tuyaDp105');
+          }
+          break;
+        }
+
+        if (
+          Number.isInteger(map.SENSITIVITY)
+          && (dp === map.SENSITIVITY || dp === map.ILLUMINANCE_SAMPLING)
+        ) {
+          this.log(`[TuyaDP] ${deviceLbl} dp 0x${dp.toString(16)}${txnInfo}:`, parsed);
+          break;
+        }
+
         this.log(`[TuyaDP] ${deviceLbl} unhandled dp 0x${dp?.toString(16)}${txnInfo}:`, parsed);
     }
 
@@ -414,6 +494,56 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     return Math.max(0, Math.round(lux * (1 + offset / 100)));
   }
 
+  _normalizeLuxValue(raw) {
+    const luxRaw = Number(raw);
+    if (!Number.isFinite(luxRaw)) return null;
+    return this._applyLuxCalibration(Math.max(0, Math.round(luxRaw)));
+  }
+
+  _normalizeRainIntensity(raw, dpFrame) {
+    let value = Number(raw);
+    if (!Number.isFinite(value)) {
+      const buf = Buffer.isBuffer(raw) ? raw : Buffer.isBuffer(dpFrame?.data) ? dpFrame.data : null;
+      const arr = buf ? [...buf] : Array.isArray(raw) ? raw : Array.isArray(dpFrame?.data) ? dpFrame.data : null;
+      if (Array.isArray(arr)) {
+        value = convertMultiByteNumberPayloadToSingleDecimalNumber(arr);
+      }
+    }
+    if (!Number.isFinite(value)) return null;
+    return Math.max(0, Math.round(value));
+  }
+
+  async _setCapabilityIfPresent(capabilityId, value) {
+    if (!this.hasCapability(capabilityId)) return;
+    await this.setCapabilityValue(capabilityId, value).catch(this.error);
+  }
+
+  _supportsConfigWrites() {
+    return Number.isInteger(this._dp?.SENSITIVITY) && Number.isInteger(this._dp?.ILLUMINANCE_SAMPLING);
+  }
+
+  async _syncSchemaCapabilities() {
+    const isTs0207 = this._dpSchemaName === 'ts0207';
+
+    for (const capabilityId of TS0207_ONLY_CAPABILITIES) {
+      if (isTs0207 && !this.hasCapability(capabilityId)) {
+        await this.addCapability(capabilityId).catch(this.error);
+      }
+
+      if (!isTs0207 && this.hasCapability(capabilityId) && typeof this.removeCapability === 'function') {
+        await this.removeCapability(capabilityId).catch(this.error);
+      }
+    }
+
+    if (isTs0207 && this.hasCapability('measure_voltage') && typeof this.removeCapability === 'function') {
+      await this.removeCapability('measure_voltage').catch(this.error);
+    }
+
+    if (!isTs0207 && !this.hasCapability('measure_voltage')) {
+      await this.addCapability('measure_voltage').catch(this.error);
+    }
+  }
+
   _fireRainTriggers(isRaining) {
     const prev = this._lastRain;
     this._lastRain = isRaining;
@@ -425,6 +555,10 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
   /* ===== settings → use repeat-with-ack ONLY here ===== */
 
   async _sendSettingsToDevice() {
+    if (!this._supportsConfigWrites()) {
+      this._settingsPushedOnce = true;
+      return;
+    }
     const sens = this.getSetting('sensitivity');           // 0..9
     const samp = this.getSetting('illuminance_sampling');  // 1..480
     try {
@@ -439,6 +573,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
 
   async onSettings({ oldSettings, newSettings, changedKeys }) {
     // only repeat/ack on settings writes (per your request)
+    if (!this._supportsConfigWrites()) return;
     try {
       if (changedKeys.includes('sensitivity')) {
         const n = Number(newSettings.sensitivity);

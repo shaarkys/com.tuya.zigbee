@@ -1,0 +1,17 @@
+{
+  "type": "boolean",
+  "title": {
+    "en": "Cleaning reminder"
+  },
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true,
+  "icon": "/assets/cleaning_reminder.svg",
+  "insightsTitleTrue": {
+    "en": "Cleaning reminder active"
+  },
+  "insightsTitleFalse": {
+    "en": "Cleaning reminder cleared"
+  }
+}

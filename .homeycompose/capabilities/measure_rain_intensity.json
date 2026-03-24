@@ -1,0 +1,14 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Rainfall intensity"
+  },
+  "uiComponent": "sensor",
+  "getable": true,
+  "setable": false,
+  "units": {
+    "en": "mV"
+  },
+  "decimals": 0,
+  "insights": true
+}

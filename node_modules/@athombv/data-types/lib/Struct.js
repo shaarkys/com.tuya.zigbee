@@ -1,14 +1,34 @@
 'use strict';
 
-function Struct(name, defs) {
+/**
+ * Creates a named Struct class with typed fields, supporting fixed and variable-length binary
+ * encoding.
+ *
+ * @param {string} name - The name of the generated class.
+ * @param {Object.<string, DataType>} defs - An object mapping field names to their data type
+ *   definitions. Each data type must expose `length`, `defaultValue`, `fromBuffer`, and `toBuffer`.
+ * @param {Object} [opts] - Optional configuration.
+ * @param {'default'|'skip'} [opts.encodeMissingFieldsBehavior='default'] - Controls how fields
+ *   with `undefined` values are handled during encoding. `'default'` fills them with the type's
+ *   default value; `'skip'` omits them entirely from the encoded output.
+ * @returns {typeof Struct} The generated Struct class.
+ */
+function Struct(name, defs, opts) {
   Object.seal(defs);
+  const encodeMissingFieldsBehavior = (opts && opts.encodeMissingFieldsBehavior) || 'default';
   let size = 0;
   let varsize = false;
+
   for (const dt of Object.values(defs)) {
     if (typeof dt.length === 'number' && dt.length > 0) {
       size += dt.length;
     } else varsize = true;
   }
+
+  if (encodeMissingFieldsBehavior === 'skip') {
+    varsize = true;
+  }
+
   const r = {
     [name]: class {
 
@@ -20,6 +40,10 @@ function Struct(name, defs) {
         }
         // eslint-disable-next-line no-restricted-syntax
         for (const key in defs) {
+          if (encodeMissingFieldsBehavior === 'skip' && typeof this[key] === 'undefined') {
+            continue;
+          }
+
           if (typeof props[key] === 'undefined') {
             this[key] = defs[key].defaultValue;
           }
@@ -102,6 +126,7 @@ function Struct(name, defs) {
 
         // eslint-disable-next-line guard-for-in,no-restricted-syntax
         for (const p in defs) {
+          if (encodeMissingFieldsBehavior === 'skip' && typeof this[p] === 'undefined') continue;
           // eslint-disable-next-line no-shadow
           let varsize = defs[p].length;
           if (defs[p].length <= 0) {

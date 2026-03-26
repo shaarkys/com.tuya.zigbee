@@ -10209,6 +10209,44 @@
       "decimals": 0,
       "insights": true
     },
+    "rain_intensity_level": {
+      "type": "enum",
+      "title": {
+        "en": "Rain intensity"
+      },
+      "desc": {
+        "en": "Derived rain condition based on rain intensity"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "values": [
+        {
+          "id": "no_rain",
+          "title": {
+            "en": "No Rain"
+          }
+        },
+        {
+          "id": "light_rain",
+          "title": {
+            "en": "Light Rain"
+          }
+        },
+        {
+          "id": "moderate_rain",
+          "title": {
+            "en": "Moderate Rain"
+          }
+        },
+        {
+          "id": "violent_rain",
+          "title": {
+            "en": "Violent Rain"
+          }
+        }
+      ]
+    },
     "measure_voc": {
       "type": "number",
       "title": {

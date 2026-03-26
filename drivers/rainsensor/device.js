@@ -54,6 +54,7 @@ const TS0207_ONLY_CAPABILITIES = [
   'measure_luminance_average_20min',
   'measure_luminance_maximum_today',
   'measure_rain_intensity',
+  'rain_intensity_level',
 ];
 
 /* Some firmware variants never echo these DPs back after a write. */
@@ -427,6 +428,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
           if (intensity !== null) {
             this.log(`[TuyaDP] ${deviceLbl} rain intensity ${intensity} mV (dp 0x${dp.toString(16)}${txnInfo})`);
             await this._setCapabilityIfPresent('measure_rain_intensity', intensity);
+            await this._setCapabilityIfPresent('rain_intensity_level', this._getRainIntensityLevel(intensity));
             this._updateRainCapability(intensity > 100, 'tuyaDp105');
           }
           break;
@@ -511,6 +513,13 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     }
     if (!Number.isFinite(value)) return null;
     return Math.max(0, Math.round(value));
+  }
+
+  _getRainIntensityLevel(intensity) {
+    if (intensity < 700) return 'no_rain';
+    if (intensity <= 2000) return 'light_rain';
+    if (intensity <= 3000) return 'moderate_rain';
+    return 'violent_rain';
   }
 
   async _setCapabilityIfPresent(capabilityId, value) {

@@ -112,22 +112,30 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
         .filter(v => Number.isInteger(v))
     );
     this.log(`Using DP schema: ${this._dpSchemaName}`);
+    if (prevSchema !== this._dpSchemaName) {
+      Promise.resolve(this._syncSchemaCapabilities?.())
+        .catch(err => this.log('Schema capability resync failed:', err?.message || err));
+    }
     if (prevSchema && prevSchema !== this._dpSchemaName && this._settingsPushedOnce) {
       this._sendSettingsToDevice().catch(err => this.log('Resending settings after DP schema change failed:', err?.message || err));
     }
   }
 
   async _detectDpSchema(zclNode) {
-    let mf = this.getData?.().manufacturerName || null;
+    const settings = typeof this.getSettings === 'function' ? this.getSettings() : {};
+    let mf = this.getData?.().manufacturerName || settings?.zb_manufacturer_name || null;
+    let modelId = this.getData?.().productId || settings?.zb_product_id || null;
     try {
       const basic = zclNode?.endpoints?.[1]?.clusters?.basic;
       if (basic?.readAttributes) {
         const attrs = await basic.readAttributes(['manufacturerName', 'modelId']);
         mf = attrs?.manufacturerName || mf;
+        modelId = attrs?.modelId || modelId;
       }
     } catch (err) {
       this.debug('Basic attribute read failed while detecting DP schema:', err?.message || err);
     }
+    this.log(`Schema detection identifiers: manufacturer=${mf || 'unknown'}, model=${modelId || 'unknown'}`);
     const schema = TS0207_RAIN_MANUFACTURERS.has(mf)
       ? 'ts0207'
       : mf === '_TZE200_u6x1zyv2'

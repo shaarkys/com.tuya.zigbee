@@ -76,6 +76,8 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
   _dpSchemaName = 'legacy';
   _optionalAck = new Set();
   _settingsPushedOnce = false;
+  _capabilitySyncTimer = null;
+  _schemaDetectionHasIdentifiers = false;
 
   /* Ack waiters: Map<dp, Array<{value, resolve, reject, timer}>> */
   _ackWaiters = new Map();
@@ -113,8 +115,9 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     );
     this.log(`Using DP schema: ${this._dpSchemaName}`);
     if (prevSchema !== this._dpSchemaName) {
-      Promise.resolve(this._syncSchemaCapabilities?.())
+      Promise.resolve(this._syncSchemaCapabilities?.(`schema:${prevSchema || 'unknown'}->${this._dpSchemaName}`))
         .catch(err => this.log('Schema capability resync failed:', err?.message || err));
+      this._scheduleCapabilityResync('schema_delayed');
     }
     if (prevSchema && prevSchema !== this._dpSchemaName && this._settingsPushedOnce) {
       this._sendSettingsToDevice().catch(err => this.log('Resending settings after DP schema change failed:', err?.message || err));
@@ -123,8 +126,17 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
 
   async _detectDpSchema(zclNode) {
     const settings = typeof this.getSettings === 'function' ? this.getSettings() : {};
-    let mf = this.getData?.().manufacturerName || settings?.zb_manufacturer_name || null;
-    let modelId = this.getData?.().productId || settings?.zb_product_id || null;
+    const data = typeof this.getData === 'function' ? this.getData() : {};
+    let mf = data?.manufacturerName
+      || data?.manufacturer
+      || this.getSetting?.('zb_manufacturer_name')
+      || settings?.zb_manufacturer_name
+      || null;
+    let modelId = data?.productId
+      || data?.modelId
+      || this.getSetting?.('zb_product_id')
+      || settings?.zb_product_id
+      || null;
     try {
       const basic = zclNode?.endpoints?.[1]?.clusters?.basic;
       if (basic?.readAttributes) {
@@ -135,6 +147,7 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     } catch (err) {
       this.debug('Basic attribute read failed while detecting DP schema:', err?.message || err);
     }
+    this._schemaDetectionHasIdentifiers = Boolean(mf || modelId);
     this.log(`Schema detection identifiers: manufacturer=${mf || 'unknown'}, model=${modelId || 'unknown'}`);
     const schema = TS0207_RAIN_MANUFACTURERS.has(mf)
       ? 'ts0207'
@@ -149,7 +162,8 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     this.printNode();
     this._deviceLabel = this._composeDeviceLabel();
     await this._detectDpSchema(zclNode);
-    await this._syncSchemaCapabilities();
+    await this._syncSchemaCapabilities('onNodeInit');
+    this._scheduleCapabilityResync('postInit');
 
     /* Request IAS zone status reports so we catch rain events promptly */
     try {
@@ -260,8 +274,11 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     }
 
     /* Send stored Tuya settings on init (with ack+retry) */
-    if (this._supportsConfigWrites()) {
+    if (this._supportsConfigWrites() && (this._dpSchemaName !== 'legacy' || this._schemaDetectionHasIdentifiers)) {
       await this._sendSettingsToDevice();
+    } else if (this._supportsConfigWrites()) {
+      this._settingsPushedOnce = true;
+      this.log('Skipping settings sync because rain sensor fingerprint is unresolved; waiting for clearer datapoints.');
     } else {
       this.log(`Skipping settings sync for ${this._dpSchemaName} rain sensor; no writable config DPs are known.`);
     }
@@ -354,11 +371,22 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
   async _handleTuyaDp(dpFrame) {
     const dp        = dpFrame?.dp;
     const parsed    = getDataValue(dpFrame);
-    if (this._dpSchemaName === 'legacy' && dp === DP_SETS.ts0207.BATTERY_PCT) {
-      this._setDpSchema('ts0207');
-    }
-    if (this._dpSchemaName === 'legacy' && (dp === DP_SETS.hobeian.SENSITIVITY || dp === DP_SETS.hobeian.ILLUMINANCE_SAMPLING || dp === DP_SETS.hobeian.BATTERY_PCT)) {
-      this._setDpSchema('hobeian');
+    if (this._dpSchemaName === 'legacy') {
+      const numericParsed = Number(parsed);
+      if (dp === DP_SETS.ts0207.BATTERY_PCT) {
+        this._setDpSchema('ts0207');
+      } else if (dp === DP_SETS.hobeian.SENSITIVITY) {
+        this._setDpSchema('hobeian');
+      } else if (dp === DP_SETS.ts0207.ILLUMINANCE && Number.isFinite(numericParsed) && numericParsed > 480) {
+        // Hobeian uses dp 0x65 for illuminance sampling (1..480), while TS0207 reports raw illuminance here.
+        this._setDpSchema('ts0207');
+      } else if (dp === DP_SETS.ts0207.ILLUMINANCE_MAX_TODAY && Number.isFinite(numericParsed) && numericParsed > 9) {
+        // Legacy uses dp 0x67 for sensitivity (0..9), TS0207 reports daily max illuminance here.
+        this._setDpSchema('ts0207');
+      } else if (dp === DP_SETS.ts0207.RAIN_INTENSITY && Number.isFinite(numericParsed) && numericParsed > 100) {
+        // Legacy battery percentage cannot exceed 100; TS0207 rain intensity commonly does.
+        this._setDpSchema('ts0207');
+      }
     }
     const map       = this._dp;
     const deviceLbl = this._getDeviceLabel();
@@ -539,26 +567,59 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
     return Number.isInteger(this._dp?.SENSITIVITY) && Number.isInteger(this._dp?.ILLUMINANCE_SAMPLING);
   }
 
-  async _syncSchemaCapabilities() {
+  _scheduleCapabilityResync(reason, delayMs = 4000) {
+    if (this._capabilitySyncTimer) {
+      try { this.homey.clearTimeout(this._capabilitySyncTimer); } catch {}
+    }
+    this._capabilitySyncTimer = this.homey.setTimeout(() => {
+      this._capabilitySyncTimer = null;
+      this._syncSchemaCapabilities(`delayed:${reason}`).catch(err => this.log('Delayed capability sync failed:', err?.message || err));
+    }, delayMs);
+  }
+
+  async _syncSchemaCapabilities(reason = 'manual') {
     const isTs0207 = this._dpSchemaName === 'ts0207';
+    this.log(`[CAPS] Sync start (${reason}) schema=${this._dpSchemaName} caps=${this.getCapabilities().join(',')}`);
 
     for (const capabilityId of TS0207_ONLY_CAPABILITIES) {
       if (isTs0207 && !this.hasCapability(capabilityId)) {
-        await this.addCapability(capabilityId).catch(this.error);
+        try {
+          await this.addCapability(capabilityId);
+          this.log(`[CAPS] Added capability ${capabilityId}`);
+        } catch (err) {
+          this.error(`[CAPS] Failed adding capability ${capabilityId}:`, err);
+        }
       }
 
       if (!isTs0207 && this.hasCapability(capabilityId) && typeof this.removeCapability === 'function') {
-        await this.removeCapability(capabilityId).catch(this.error);
+        try {
+          await this.removeCapability(capabilityId);
+          this.log(`[CAPS] Removed capability ${capabilityId}`);
+        } catch (err) {
+          this.error(`[CAPS] Failed removing capability ${capabilityId}:`, err);
+        }
       }
     }
 
     if (isTs0207 && this.hasCapability('measure_voltage') && typeof this.removeCapability === 'function') {
-      await this.removeCapability('measure_voltage').catch(this.error);
+      try {
+        await this.removeCapability('measure_voltage');
+        this.log('[CAPS] Removed capability measure_voltage');
+      } catch (err) {
+        this.error('[CAPS] Failed removing capability measure_voltage:', err);
+      }
     }
 
     if (!isTs0207 && !this.hasCapability('measure_voltage')) {
-      await this.addCapability('measure_voltage').catch(this.error);
+      try {
+        await this.addCapability('measure_voltage');
+        this.log('[CAPS] Added capability measure_voltage');
+      } catch (err) {
+        this.error('[CAPS] Failed adding capability measure_voltage:', err);
+      }
     }
+
+    this.log(`[CAPS] Sync done (${reason}) caps=${this.getCapabilities().join(',')}`);
   }
 
   _fireRainTriggers(isRaining) {
@@ -611,6 +672,10 @@ class RainSensorTuya extends TuyaSpecificClusterDevice {
   }
 
   onDeleted() {
+    if (this._capabilitySyncTimer) {
+      try { this.homey.clearTimeout(this._capabilitySyncTimer); } catch {}
+      this._capabilitySyncTimer = null;
+    }
     this.log('Rain sensor removed');
   }
 }

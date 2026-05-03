@@ -1,0 +1,12 @@
+[
+  {
+    "id": "illuminance_calibration",
+    "type": "number",
+    "label": { "en": "Illuminance calibration (%)" },
+    "hint": { "en": "Percentual offset applied in Homey to reported lux (e.g., -10 or 15)." },
+    "min": -100,
+    "max": 100,
+    "step": 1,
+    "value": 0
+  }
+]

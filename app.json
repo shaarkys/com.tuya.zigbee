@@ -237,6 +237,32 @@
         ]
       },
       {
+        "id": "rain_started_2",
+        "title": {
+          "en": "Rain started"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=rainsensor2"
+          }
+        ]
+      },
+      {
+        "id": "rain_stopped_2",
+        "title": {
+          "en": "Rain stopped"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=rainsensor2"
+          }
+        ]
+      },
+      {
         "id": "alarm_siren",
         "title": {
           "en": "Siren Alarm",
@@ -381,6 +407,45 @@
                 }
               }
             ]
+          }
+        ]
+      },
+      {
+        "id": "sonoff_snzb_01p_one_click",
+        "title": {
+          "en": "One click"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sonoff_snzb_01p"
+          }
+        ]
+      },
+      {
+        "id": "sonoff_snzb_01p_two_clicks",
+        "title": {
+          "en": "Two clicks"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sonoff_snzb_01p"
+          }
+        ]
+      },
+      {
+        "id": "sonoff_snzb_01p_hold",
+        "title": {
+          "en": "Long press"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sonoff_snzb_01p"
           }
         ]
       },
@@ -1407,6 +1472,19 @@
             "type": "device",
             "name": "device",
             "filter": "driver_id=rainsensor"
+          }
+        ]
+      },
+      {
+        "id": "is_raining_2",
+        "title": {
+          "en": "It is raining?"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=rainsensor2"
           }
         ]
       },
@@ -4345,15 +4423,12 @@
       },
       "zigbee": {
         "manufacturerName": [
-          "_TZ3210_tgvtvdoc",
-          "_TZ3210_p68kms0l",
           "_TZE200_jsaqgakf",
           "_TZE200_2pddnnrk",
           "_TZE200_u6x1zyv2"
         ],
         "productId": [
-          "TS0601",
-          "TS0207"
+          "TS0601"
         ],
         "endpoints": {
           "1": {
@@ -4433,6 +4508,94 @@
           },
           "hint": {
             "en": "Percentual offset applied in Homey to reported lux (e.g., -10 or 15). Works for both TS0601 and TS0207 variants."
+          },
+          "min": -100,
+          "max": 100,
+          "step": 1,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "rainsensor2",
+      "name": {
+        "en": "Rain Sensor 2"
+      },
+      "class": "sensor",
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "zigbee"
+      ],
+      "capabilities": [
+        "alarm_water",
+        "measure_luminance",
+        "measure_battery",
+        "cleaning_reminder",
+        "measure_luminance_average_20min",
+        "measure_luminance_maximum_today",
+        "measure_rain_intensity",
+        "rain_intensity_level"
+      ],
+      "energy": {
+        "batteries": [
+          "CR123A"
+        ]
+      },
+      "images": {
+        "large": "/drivers/rainsensor2/assets/images/large.png",
+        "small": "/drivers/rainsensor2/assets/images/small.png"
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "_TZ3210_tgvtvdoc",
+          "_TZ3210_p68kms0l"
+        ],
+        "productId": [
+          "TS0207"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              1280,
+              61184
+            ],
+            "bindings": [
+              1,
+              1280
+            ]
+          }
+        },
+        "learnmode": {
+          "image": "/drivers/rainsensor2/assets/icon.svg",
+          "instruction": {
+            "en": "Put the sensor into pairing mode (hold the button) and add it in Homey."
+          }
+        }
+      },
+      "capabilitiesOptions": {
+        "measure_luminance": {
+          "title": {
+            "en": "Illuminance"
+          },
+          "units": {
+            "en": "lx"
+          },
+          "decimals": 0
+        }
+      },
+      "settings": [
+        {
+          "id": "illuminance_calibration",
+          "type": "number",
+          "label": {
+            "en": "Illuminance calibration (%)"
+          },
+          "hint": {
+            "en": "Percentual offset applied in Homey to reported lux (e.g., -10 or 15)."
           },
           "min": -100,
           "max": 100,
@@ -7388,6 +7551,80 @@
           "max": 3600,
           "step": 1,
           "value": 60
+        }
+      ]
+    },
+    {
+      "id": "sonoff_snzb_01p",
+      "name": {
+        "en": "SONOFF Wireless Button SNZB-01P"
+      },
+      "class": "button",
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "zigbee"
+      ],
+      "capabilities": [
+        "measure_battery",
+        "alarm_battery"
+      ],
+      "images": {
+        "large": "/drivers/sonoff_snzb_01p/assets/images/large.png",
+        "small": "/drivers/sonoff_snzb_01p/assets/images/small.png"
+      },
+      "energy": {
+        "batteries": [
+          "CR2477"
+        ]
+      },
+      "zigbee": {
+        "manufacturerName": [
+          "eWeLink"
+        ],
+        "productId": [
+          "SNZB-01P"
+        ],
+        "endpoints": {
+          "1": {
+            "clusters": [
+              0,
+              1,
+              3,
+              6,
+              32,
+              64599
+            ],
+            "bindings": [
+              1,
+              6
+            ]
+          }
+        },
+        "learnmode": {
+          "image": "/drivers/sonoff_snzb_01p/assets/icon.svg",
+          "instruction": {
+            "en": "Remove the back cover and press the reset button for 5 seconds until the LED starts blinking."
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "batteryThreshold",
+          "type": "number",
+          "label": {
+            "en": "Battery Low Alarm Threshold (%)"
+          },
+          "hint": {
+            "en": "This setting determines the battery percentage below which the battery alarm is enabled."
+          },
+          "value": 10,
+          "attr": {
+            "step": 1,
+            "min": 1,
+            "max": 90
+          }
         }
       ]
     },

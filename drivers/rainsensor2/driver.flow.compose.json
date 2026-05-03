@@ -1,0 +1,18 @@
+{
+  "triggers": [
+    {
+      "id": "rain_started_2",
+      "title": { "en": "Rain started" }
+    },
+    {
+      "id": "rain_stopped_2",
+      "title": { "en": "Rain stopped" }
+    }
+  ],
+  "conditions": [
+    {
+      "id": "is_raining_2",
+      "title": { "en": "It is raining?" }
+    }
+  ]
+}

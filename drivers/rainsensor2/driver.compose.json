@@ -1,7 +1,7 @@
 {
-  "id": "rainsensor",
+  "id": "rainsensor2",
   "name": {
-    "en": "Rain Sensor"
+    "en": "Rain Sensor 2"
   },
   "class": "sensor",
   "platforms": ["local"],
@@ -10,7 +10,11 @@
     "alarm_water",
     "measure_luminance",
     "measure_battery",
-    "measure_voltage"
+    "cleaning_reminder",
+    "measure_luminance_average_20min",
+    "measure_luminance_maximum_today",
+    "measure_rain_intensity",
+    "rain_intensity_level"
   ],
   "energy": {
     "batteries": ["CR123A"]
@@ -21,12 +25,11 @@
   },
   "zigbee": {
     "manufacturerName": [
-      "_TZE200_jsaqgakf",
-      "_TZE200_2pddnnrk",
-      "_TZE200_u6x1zyv2"
+      "_TZ3210_tgvtvdoc",
+      "_TZ3210_p68kms0l"
     ],
     "productId": [
-      "TS0601"
+      "TS0207"
     ],
     "endpoints": {
       "1": {
@@ -46,11 +49,6 @@
       "title": { "en": "Illuminance" },
       "units": { "en": "lx" },
       "decimals": 0
-    },
-    "measure_voltage": {
-      "title": { "en": "Battery voltage" },
-      "units": { "en": "V" },
-      "decimals": 1
     }
   }
 }

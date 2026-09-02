@@ -14,8 +14,10 @@ const dataPoints = {
   fadingTime: 102,           // value (s)
   humidityOffset: 104,       // value
   temperatureOffset: 105,    // value (x10)
-  illuminance: 106,          // value (lux or interval config)
+  illuminance: 106,          // value (lux)
+  illuminanceInterval: 107,  // value (minutes)
   indicator: 108,            // bool (LED on device)
+  temperatureUnit: 109,      // enum | 0: Celsius, 1: Fahrenheit
   battery: 110,              // value (%)
   temperature: 111,          // value (°C x10)
 };
@@ -61,9 +63,10 @@ const getDataValue = (dpValue) => {
 
 class motion_sensor_3 extends TuyaSpecificClusterDevice {
   async onNodeInit({ zclNode }) {
-    // Listen for Tuya responses (reports come via response on many devices)
-    zclNode.endpoints[1].clusters.tuya.on('response', (resp) => this.updateFromTuya(resp));
-    zclNode.endpoints[1].clusters.tuya.on('reporting', (resp) => this.updateFromTuya(resp));
+    this._onTuyaResponse = resp => this.updateFromTuya(resp).catch(err => this.error('Failed to handle Tuya response:', err));
+    this._onTuyaReporting = resp => this.updateFromTuya(resp).catch(err => this.error('Failed to handle Tuya report:', err));
+    zclNode.endpoints[1].clusters.tuya.on('response', this._onTuyaResponse);
+    zclNode.endpoints[1].clusters.tuya.on('reporting', this._onTuyaReporting);
   }
 
   async updateFromTuya(data) {
@@ -76,16 +79,16 @@ class motion_sensor_3 extends TuyaSpecificClusterDevice {
         await this.setCapabilityValue('alarm_motion', Boolean(value)).catch(this.error);
         break;
       case dataPoints.temperature: {
-        const temperatureOffset = this.getSetting('temperature_offset') || 0;
         const decimals2 = this.getSetting('temperature_decimals') === '2';
         const rawC = (value / 10);
         const parsed = decimals2 ? Math.round(rawC * 100) / 100 : Math.round(rawC * 10) / 10;
-        this.log('measure_temperature:', parsed, '+ offset', temperatureOffset);
-        await this.setCapabilityValue('measure_temperature', parsed + temperatureOffset).catch(this.error);
+        this.log('measure_temperature:', parsed);
+        await this.setCapabilityValue('measure_temperature', parsed).catch(this.error);
         break;
       }
       case dataPoints.humidity: {
-        const humidity = value; // reported as %
+        const humidity = Math.max(0, Math.min(100, Number(value)));
+        if (!Number.isFinite(humidity)) return;
         this.log('measure_humidity:', humidity);
         await this.setCapabilityValue('measure_humidity', humidity).catch(this.error);
         break;
@@ -97,22 +100,26 @@ class motion_sensor_3 extends TuyaSpecificClusterDevice {
         break;
       }
       case dataPoints.battery: {
-        const percent = value;
+        const percent = Math.max(0, Math.min(100, Number(value)));
+        if (!Number.isFinite(percent)) return;
         const batteryThreshold = this.getSetting('batteryThreshold') || 20;
         this.log('measure_battery (%):', percent);
         await this.setCapabilityValue('measure_battery', percent).catch(this.error);
         await this.setCapabilityValue('alarm_battery', percent < batteryThreshold).catch(this.error);
         break;
       }
-      case dataPoints.sensitivity:
-        this.log('sensitivity:', value);
+      case dataPoints.sensitivity: {
+        const reported = Number(value);
+        if (Number.isFinite(reported)) await this._syncSettingIfChanged('radar_sensitivity', reported);
         break;
-      case dataPoints.fadingTime:
-        this.log('fadingTime (s):', value);
+      }
+      case dataPoints.fadingTime: {
+        const reported = Number(value);
+        if (Number.isFinite(reported)) await this._syncSettingIfChanged('fading_time', reported);
         break;
+      }
       case dataPoints.temperatureOffset: {
-        // Device reports offset in 0.1°C steps
-        const reported = Number(value) / 10;
+        const reported = this._toSignedData32(value) / 10;
         const cur = Number(this.getSetting('temperature_offset') || 0);
         if (!Number.isNaN(reported) && reported !== cur) {
           this.log('temperature_offset reported (°C):', reported);
@@ -121,7 +128,7 @@ class motion_sensor_3 extends TuyaSpecificClusterDevice {
         break;
       }
       case dataPoints.humidityOffset: {
-        const reported = Number(value);
+        const reported = this._toSignedData32(value);
         const cur = Number(this.getSetting('humidity_offset') || 0);
         if (!Number.isNaN(reported) && reported !== cur) {
           this.log('humidity_offset reported (%):', reported);
@@ -138,50 +145,77 @@ class motion_sensor_3 extends TuyaSpecificClusterDevice {
         }
         break;
       }
-      case 107: // observed on some firmwares; purpose unknown (enum/value)
-        this.log('dp107 (vendor-specific):', value);
+      case dataPoints.illuminanceInterval: {
+        const reported = Number(value);
+        const current = Number(this.getSetting('illuminance_interval'));
+        if (Number.isFinite(reported) && reported !== current) {
+          await this._syncSettingIfChanged('illuminance_interval', reported);
+        }
         break;
-      case 109: // observed heartbeat/unused on this firmware
-        // too chatty in logs; keep at debug
-        this.debug ? this.debug('dp109 (vendor-specific):', value) : this.log('dp109 (vendor-specific):', value);
+      }
+      case dataPoints.temperatureUnit:
+        await this._syncSettingIfChanged('temperature_unit', Number(value) === 1 ? 'fahrenheit' : 'celsius');
         break;
       default:
         this.log('Unhandled dp', dp, 'value', value);
     }
   }
 
+  _toSignedData32(value) {
+    const integer = Number(value);
+    if (!Number.isFinite(integer)) return integer;
+    const normalized = integer >>> 0;
+    return normalized >= 0x80000000 ? normalized - 0x100000000 : normalized;
+  }
+
+  async _syncSettingIfChanged(key, value) {
+    if (this.getSetting(key) === value) return;
+    try {
+      await this.setSettings({ [key]: value });
+    } catch (err) {
+      this.error(`Failed to sync setting '${key}' from device report:`, err);
+    }
+  }
+
   async onSettings({ newSettings, changedKeys }) {
     if (changedKeys.includes('radar_sensitivity')) {
-      // If scaling is needed, adjust here (e.g., value * 10)
-      await this.writeData32(dataPoints.sensitivity, newSettings['radar_sensitivity']);
+      await this.writeData32(dataPoints.sensitivity, newSettings.radar_sensitivity, { throwOnError: true });
     }
 
     if (changedKeys.includes('fading_time')) {
-      await this.writeData32(dataPoints.fadingTime, newSettings['fading_time']);
+      await this.writeData32(dataPoints.fadingTime, newSettings.fading_time, { throwOnError: true });
     }
 
     if (changedKeys.includes('illuminance_interval')) {
-      // Z2M docs: interval in minutes (1..720)
-      await this.writeData32(dataPoints.illuminance, newSettings['illuminance_interval']);
+      await this.writeData32(dataPoints.illuminanceInterval, newSettings.illuminance_interval, { throwOnError: true });
     }
 
     if (changedKeys.includes('temperature_offset')) {
-      // Device expects offset in 0.1°C steps
       const val = Math.round((newSettings['temperature_offset'] || 0) * 10);
-      await this.writeData32(dataPoints.temperatureOffset, val);
+      await this.writeData32(dataPoints.temperatureOffset, val, { throwOnError: true });
     }
 
     if (changedKeys.includes('humidity_offset')) {
       const val = Number(newSettings['humidity_offset']) || 0;
-      await this.writeData32(dataPoints.humidityOffset, val);
+      await this.writeData32(dataPoints.humidityOffset, val, { throwOnError: true });
     }
 
     if (changedKeys.includes('indicator')) {
-      await this.writeBool(dataPoints.indicator, Boolean(newSettings['indicator']));
+      await this.writeBool(dataPoints.indicator, Boolean(newSettings.indicator), { throwOnError: true });
+    }
+
+    if (changedKeys.includes('temperature_unit')) {
+      const unit = newSettings.temperature_unit === 'fahrenheit' ? 1 : 0;
+      await this.writeEnum(dataPoints.temperatureUnit, unit, { throwOnError: true });
     }
   }
 
   onDeleted() {
+    const tuyaCluster = this.zclNode?.endpoints?.[1]?.clusters?.tuya;
+    if (tuyaCluster && this._onTuyaResponse) tuyaCluster.removeListener('response', this._onTuyaResponse);
+    if (tuyaCluster && this._onTuyaReporting) tuyaCluster.removeListener('reporting', this._onTuyaReporting);
+    this._onTuyaResponse = null;
+    this._onTuyaReporting = null;
     this.log('Motion Sensor 3 removed');
   }
 }

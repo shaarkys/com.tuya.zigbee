@@ -68,6 +68,10 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
     return Math.round(value * 10) / 10;
   }
 
+  _roundToTwoDecimals(value) {
+    return Math.round(value * 100) / 100;
+  }
+
   async _syncSettingIfChanged(key, value) {
     const current = this.getSetting(key);
     if (current === value) return;
@@ -82,24 +86,13 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
   async onNodeInit({ zclNode }) {
 
     this._onTuyaResponse = (response) => {
-      //this.log('Response event received:', response); // Added for debugging
-      this.updatePosition(response);
+      this.updatePosition(response).catch(err => this.error('Failed to handle Tuya response:', err));
     };
     this._onTuyaReporting = (report) => {
-      this.updatePosition(report);
+      this.updatePosition(report).catch(err => this.error('Failed to handle Tuya report:', err));
     };
     zclNode.endpoints[1].clusters.tuya.on("response", this._onTuyaResponse);
     zclNode.endpoints[1].clusters.tuya.on("reporting", this._onTuyaReporting);
-
-    // Register the flow trigger card for target distance
-    this.targetDistanceTrigger = this.homey.flow.getDeviceTriggerCard('target_distance_changed');
-    this.targetDistanceTrigger
-      .registerRunListener((args, state) => {
-        // Custom logic when the flow is triggered
-        // For example, compare args with state or other conditions
-        // Return true if the conditions are met, false otherwise
-        return Promise.resolve(args.target_distance === state.target_distance);
-      });
 
   }
 
@@ -111,7 +104,7 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
     switch (dp) {
       case dataPoints.tshpsPresenceState:
         this.log("presence state: " + value)
-        this.setCapabilityValue('alarm_motion', Boolean(value))
+        await this.setCapabilityValue('alarm_motion', Boolean(value));
         break;
       case dataPoints.tshpscSensitivity:
         this.log("sensitivity state: " + value)
@@ -119,16 +112,16 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
         break;
       case dataPoints.tshpsIlluminanceLux:
         this.log("lux value: " + value)
-        this.onIlluminanceMeasuredAttributeReport(value)
+        await this.onIlluminanceMeasuredAttributeReport(value);
         break;
       case dataPoints.tshpsMinimumRange: {
-        const minimumRange = this._roundToSingleDecimal(value / 100);
+        const minimumRange = this._roundToTwoDecimals(value / 100);
         this.log("minimum range: " + minimumRange)
         await this._syncSettingIfChanged('minimum_range', minimumRange);
         break;
       }
       case dataPoints.tshpsMaximumRange: {
-        const maximumRange = this._roundToSingleDecimal(value / 100);
+        const maximumRange = this._roundToTwoDecimals(value / 100);
         this.log("maximum range: " + maximumRange)
         await this._syncSettingIfChanged('maximum_range', maximumRange);
         break;
@@ -137,16 +130,8 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
         const currentTime = new Date().getTime();
         if (currentTime - this.lastDistanceUpdateTime >= distanceUpdateInterval * 1000) {
           const targetDistance = value / 100;
-          this.setCapabilityValue('target_distance', targetDistance);
+          await this.setCapabilityValue('target_distance', targetDistance);
           this.lastDistanceUpdateTime = currentTime;
-
-          // Check if targetDistanceTrigger is defined before calling trigger
-          if (this.targetDistanceTrigger) {
-            this.targetDistanceTrigger.trigger(this, { target_distance: targetDistance }, { target_distance: targetDistance })
-              .catch(this.error);
-          } else {
-            this.log('targetDistanceTrigger is not defined');
-          }
         }
         break;
       case dataPoints.tshpsFadingTime: {
@@ -180,29 +165,29 @@ class radarSensor2 extends TuyaSpecificClusterDevice {
 
   async onSettings({ newSettings, changedKeys }) {
     if (changedKeys.includes('radar_sensitivity')) {
-      this.writeData32(dataPoints.tshpscSensitivity, newSettings['radar_sensitivity'])
+      await this.writeData32(dataPoints.tshpscSensitivity, newSettings.radar_sensitivity, { throwOnError: true });
     }
 
     if (changedKeys.includes('minimum_range')) {
-      this.writeData32(dataPoints.tshpsMinimumRange, newSettings['minimum_range'] * 100)
+      await this.writeData32(dataPoints.tshpsMinimumRange, Math.round(newSettings.minimum_range * 100), { throwOnError: true });
     }
 
     if (changedKeys.includes('maximum_range')) {
-      this.writeData32(dataPoints.tshpsMaximumRange, newSettings['maximum_range'] * 100)
+      await this.writeData32(dataPoints.tshpsMaximumRange, Math.round(newSettings.maximum_range * 100), { throwOnError: true });
     }
 
     if (changedKeys.includes('detection_delay')) {
-      this.writeData32(dataPoints.tshpsDetectionDelay, Math.round(newSettings['detection_delay'] * 10))
+      await this.writeData32(dataPoints.tshpsDetectionDelay, Math.round(newSettings.detection_delay * 10), { throwOnError: true });
     }
 
     if (changedKeys.includes('fading_time')) {
-      this.writeData32(dataPoints.tshpsFadingTime, Math.round(newSettings['fading_time'] * 10))
+      await this.writeData32(dataPoints.tshpsFadingTime, Math.round(newSettings.fading_time * 10), { throwOnError: true });
     }
   }
 
-  onIlluminanceMeasuredAttributeReport(measuredValue) {
+  async onIlluminanceMeasuredAttributeReport(measuredValue) {
     this.log('measure_luminance | Luminance - measuredValue (lux):', measuredValue);
-    this.setCapabilityValue('measure_luminance', measuredValue);
+    await this.setCapabilityValue('measure_luminance', measuredValue);
   }
 
   onIASZoneStatusChangeNotification({ zoneStatus, extendedStatus, zoneId, delay, }) {

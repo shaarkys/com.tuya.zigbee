@@ -44,8 +44,10 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
     const tuyaCluster = endpoint.clusters?.tuya;
     if (tuyaCluster) {
-      tuyaCluster.on('reporting', dpValue => this._handleTuyaDatapoint(dpValue));
-      tuyaCluster.on('response', dpValue => this._handleTuyaDatapoint(dpValue));
+      this._onTuyaReporting = dpValue => this._handleTuyaDatapoint(dpValue);
+      this._onTuyaResponse = dpValue => this._handleTuyaDatapoint(dpValue);
+      tuyaCluster.on('reporting', this._onTuyaReporting);
+      tuyaCluster.on('response', this._onTuyaResponse);
 
       try {
         await tuyaCluster.dataQuery();
@@ -210,12 +212,13 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   _maybeUpdateDryAlarm(currentMoisture = this._lastSoilMoisture) {
     if (!this.hasCapability(CAP_ALARM_MOISTURE)) return;
-    if (!Number.isFinite(currentMoisture)) return;
 
     const threshold = Number(this.getSetting('alarm_soil_moisture_min')) || 0;
     if (threshold <= 0) {
+      this.setCapabilityValue(CAP_ALARM_MOISTURE, false).catch(this.error);
       return;
     }
+    if (!Number.isFinite(currentMoisture)) return;
 
     const dry = currentMoisture <= threshold;
     this.setCapabilityValue(CAP_ALARM_MOISTURE, dry).catch(this.error);
@@ -224,14 +227,8 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
   _toSigned(value) {
     const int = Number(value);
     if (!Number.isFinite(int)) return int;
-    const normalized = int & 0xFFFF;
-    return normalized >= 0x8000 ? normalized - 0x10000 : normalized;
-  }
-
-  _toUnsigned16(value) {
-    const int = Math.round(Number(value));
-    if (!Number.isFinite(int)) return 0;
-    return int < 0 ? (0x10000 + int) & 0xFFFF : int & 0xFFFF;
+    const normalized = int >>> 0;
+    return normalized >= 0x80000000 ? normalized - 0x100000000 : normalized;
   }
 
   async onSettings({ newSettings, changedKeys }) {
@@ -240,19 +237,19 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     for (const key of changedKeys) {
       switch (key) {
         case 'soil_moisture_calibration':
-          tasks.push(this.writeData32(DP.soilMoistureCalibration, this._toUnsigned16(newSettings[key])));
+          tasks.push(this.writeData32(DP.soilMoistureCalibration, Math.round(Number(newSettings[key])), { throwOnError: true }));
           break;
         case 'temperature_calibration':
-          tasks.push(this.writeData32(DP.temperatureCalibration, this._toUnsigned16(newSettings[key] * 10)));
+          tasks.push(this.writeData32(DP.temperatureCalibration, Math.round(Number(newSettings[key]) * 10), { throwOnError: true }));
           break;
         case 'humidity_calibration':
-          tasks.push(this.writeData32(DP.humidityCalibration, this._toUnsigned16(newSettings[key])));
+          tasks.push(this.writeData32(DP.humidityCalibration, Math.round(Number(newSettings[key])), { throwOnError: true }));
           break;
         case 'display_unit': {
           const enumValue = DISPLAY_UNIT_VALUE[newSettings[key]] ?? 0;
           const targetDp = this._displayUnitDp || DP.displayUnit;
           tasks.push(
-            this.writeEnum(targetDp, enumValue)
+            this.writeEnum(targetDp, enumValue, { throwOnError: true })
               .then(() => {
                 this._displayUnit = newSettings[key];
                 if (typeof this._lastTemperatureRaw === 'number') {
@@ -263,18 +260,18 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
           break;
         }
         case 'alarm_soil_moisture_min':
-          tasks.push(this.writeData32(DP.alarmSoilMoistureMin, Number(newSettings[key])));
+          tasks.push(this.writeData32(DP.alarmSoilMoistureMin, Math.round(Number(newSettings[key])), { throwOnError: true }));
           tasks.push(Promise.resolve().then(() => {
-            if (this._lastDryFromDevice === null) {
+            if (Number(newSettings[key]) <= 0 || this._lastDryFromDevice === null) {
               this._maybeUpdateDryAlarm();
             }
           }));
           break;
         case 'temperature_sampling':
-          tasks.push(this.writeData32(DP.temperatureSampling, Number(newSettings[key])));
+          tasks.push(this.writeData32(DP.temperatureSampling, Math.round(Number(newSettings[key])), { throwOnError: true }));
           break;
         case 'soil_moisture_sampling':
-          tasks.push(this.writeData32(DP.soilMoistureSampling, Number(newSettings[key])));
+          tasks.push(this.writeData32(DP.soilMoistureSampling, Math.round(Number(newSettings[key])), { throwOnError: true }));
           break;
         default:
           break;
@@ -285,6 +282,11 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
   }
 
   onDeleted() {
+    const tuyaCluster = this.zclNode?.endpoints?.[1]?.clusters?.tuya;
+    if (tuyaCluster && this._onTuyaReporting) tuyaCluster.removeListener('reporting', this._onTuyaReporting);
+    if (tuyaCluster && this._onTuyaResponse) tuyaCluster.removeListener('response', this._onTuyaResponse);
+    this._onTuyaReporting = null;
+    this._onTuyaResponse = null;
     this.log('Soil sensor removed');
   }
 }

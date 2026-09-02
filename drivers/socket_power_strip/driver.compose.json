@@ -9,11 +9,6 @@
   "capabilities": [
     "onoff"
   ],
-  "capabilitiesOptions": {
-    "measure_power": {
-      "approximated": true
-    }
-  },
   "images": {
     "large": "{{driverAssetsPath}}/images/large.png",
     "small": "{{driverAssetsPath}}/images/small.png"
@@ -23,7 +18,9 @@
       "_TZ3000_1obwwnmq",
       "_TZ3000_vzopcetz",
       "_TZ3000_4uf3d0ax",
-      "_TZ3000_wzauvbcs"
+      "_TZ3000_wzauvbcs",
+      "_TZ3000_oznonj5q",
+      "_TZ3000_vmpbygs5"
     ],
     "productId": [
       "TS011F"

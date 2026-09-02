@@ -13,13 +13,13 @@
   "author": "Johan Bendz",
   "license": "MIT",
   "dependencies": {
-    "color-space": "^2.3.2",
+    "color-space": "^3.1.0",
     "homey-zigbeedriver": "2.2.17",
-    "npm-check-updates": "^19.6.5",
+    "npm-check-updates": "^23.1.0",
     "tinygradient": "^2.0.1",
-    "zigbee-clusters": "3.0.2"
+    "zigbee-clusters": "3.7.0"
   },
   "devDependencies": {
-    "eslint": "^10.1.0"
+    "eslint": "^10.9.1"
   }
 }

@@ -1,19 +1,13 @@
 'use strict';
 
-const Homey = require('homey');
 const { ZigBeeDevice } = require('homey-zigbeedriver');
-const { debug, CLUSTER } = require('zigbee-clusters');
+const { CLUSTER } = require('zigbee-clusters');
 
 class socket_power_strip extends ZigBeeDevice {
 		
 	async onNodeInit({zclNode}) {
 
-		this.printNode();
-
-/* 		const node = await this.homey.zigbee.getNode(this);
-		node.handleFrame = (endpointId, clusterId, frame, meta) => {
-      		this.log("frame data! endpointId:", endpointId,", clusterId:", clusterId,", frame:", frame, ", meta:", meta);
-    	}; */
+		if (!this.isSubDevice()) this.printNode();
 
         const { subDeviceId } = this.getData();
         this.log("Device data: ", subDeviceId);
@@ -22,10 +16,12 @@ class socket_power_strip extends ZigBeeDevice {
             endpoint: subDeviceId === 'socket2' ? 2 : subDeviceId === 'socket3' ? 3 : 1,
         });
 
-		await zclNode.endpoints[1].clusters.basic.readAttributes(['manufacturerName', 'zclVersion', 'appVersion', 'modelId', 'powerSource', 'attributeReportingStatus'])
-		.catch(err => {
-			this.error('Error when reading device attributes ', err);
-		});
+		if (!this.isSubDevice()) {
+			await zclNode.endpoints[1].clusters.basic.readAttributes(['manufacturerName', 'zclVersion', 'appVersion', 'modelId', 'powerSource', 'attributeReportingStatus'])
+			.catch(err => {
+				this.error('Error when reading device attributes ', err);
+			});
+		}
 
   }
 

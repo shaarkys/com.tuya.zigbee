@@ -3,7 +3,7 @@
       "id": "batteryThreshold",
       "type": "number",
       "label": {
-        "en": "Battery Low Alarm Voltage Threshold (%)",
+        "en": "Battery Low Alarm Threshold (%)",
         "it": "Soglia dell'allarme di batteria scarica "
       },
       "hint": {

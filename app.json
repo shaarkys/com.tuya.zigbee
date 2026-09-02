@@ -411,45 +411,6 @@
         ]
       },
       {
-        "id": "sonoff_snzb_01p_one_click",
-        "title": {
-          "en": "One click"
-        },
-        "args": [
-          {
-            "type": "device",
-            "name": "device",
-            "filter": "driver_id=sonoff_snzb_01p"
-          }
-        ]
-      },
-      {
-        "id": "sonoff_snzb_01p_two_clicks",
-        "title": {
-          "en": "Two clicks"
-        },
-        "args": [
-          {
-            "type": "device",
-            "name": "device",
-            "filter": "driver_id=sonoff_snzb_01p"
-          }
-        ]
-      },
-      {
-        "id": "sonoff_snzb_01p_hold",
-        "title": {
-          "en": "Long press"
-        },
-        "args": [
-          {
-            "type": "device",
-            "name": "device",
-            "filter": "driver_id=sonoff_snzb_01p"
-          }
-        ]
-      },
-      {
         "id": "wall_remote_1_gang_buttons",
         "title": {
           "en": "Button Action"
@@ -3534,8 +3495,7 @@
         "manufacturerName": [
           "_TZE200_rhgsbacq",
           "_TZE200_grgol3xp",
-          "_TZE200_uli8wasj",
-          "_TZE200_y8jijhba"
+          "_TZE200_uli8wasj"
         ],
         "productId": [
           "TS0601"
@@ -3675,6 +3635,28 @@
             "max": 10,
             "step": 0.1
           }
+        },
+        {
+          "id": "temperature_unit",
+          "type": "radio",
+          "label": {
+            "en": "Temperature unit"
+          },
+          "value": "celsius",
+          "values": [
+            {
+              "id": "celsius",
+              "label": {
+                "en": "Celsius"
+              }
+            },
+            {
+              "id": "fahrenheit",
+              "label": {
+                "en": "Fahrenheit"
+              }
+            }
+          ]
         },
         {
           "id": "temperature_decimals",
@@ -4277,7 +4259,6 @@
       },
       "zigbee": {
         "manufacturerName": [
-          "_TZE204_ijxvkhd0",
           "_TZE204_sxm7l9xa"
         ],
         "productId": [
@@ -4314,8 +4295,9 @@
             "nl": "Radar sensitiviteit"
           },
           "value": 7,
-          "min": 1,
-          "max": 9
+          "min": 0,
+          "max": 9,
+          "step": 1
         },
         {
           "id": "minimum_range",
@@ -4327,6 +4309,7 @@
           "value": 0,
           "min": 0,
           "max": 9.5,
+          "step": 0.15,
           "units": {
             "en": "meters",
             "nl": "meters"
@@ -4342,6 +4325,7 @@
           "value": 9.5,
           "min": 0,
           "max": 9.5,
+          "step": 0.15,
           "units": {
             "en": "meters",
             "nl": "meters"
@@ -4357,6 +4341,7 @@
           "value": 7,
           "min": 0,
           "max": 10,
+          "step": 0.1,
           "units": {
             "en": "seconds",
             "nl": "seconden"
@@ -4370,8 +4355,9 @@
             "nl": "Reset tijd"
           },
           "value": 7,
-          "min": 0,
+          "min": 0.5,
           "max": 1500,
+          "step": 1,
           "units": {
             "en": "seconds",
             "nl": "seconden"
@@ -5840,7 +5826,7 @@
           "id": "batteryThreshold",
           "type": "number",
           "label": {
-            "en": "Battery Low Alarm Voltage Threshold (%)",
+            "en": "Battery Low Alarm Threshold (%)",
             "it": "Soglia dell'allarme di batteria scarica "
           },
           "hint": {
@@ -6196,12 +6182,11 @@
           "_TZ3000_zloso4jk",
           "_TZ3000_5f43h46b",
           "_TZ3000_cehuw1lw",
-          "_TZ3000_5f43h46b",
           "_TZ3000_fqoynhku",
+          "_TZ3000_3uimvkn6",
           "_TZ3000_ynmowqk2",
           "_TZ3000_kx0pris5",
           "_TZ3000_hdopuwv6",
-          "_TZ3000_bfn1w0mm",
           "_TZ3000_0zfrhq4i",
           "_TZ3000_gznh2xla",
           "_TZ3000_ss98ec5d",
@@ -6282,15 +6267,15 @@
           "id": "minReportPower",
           "type": "number",
           "label": {
-            "en": "Min report interval for power (s)"
+            "en": "TS0121 fallback electrical polling interval (s)"
           },
           "hint": {
-            "en": "Min interval before a report is sent to Homey (s)"
+            "en": "For TS0121/TSO121 fallback reads only; the shortest of these three intervals is used. Zigbee reporting is unchanged."
           },
           "value": 60,
           "attr": {
             "step": 1,
-            "min": 10,
+            "min": 60,
             "max": 86400
           }
         },
@@ -6298,15 +6283,15 @@
           "id": "minReportCurrent",
           "type": "number",
           "label": {
-            "en": "Min report interval for current (s)"
+            "en": "TS0121 fallback electrical polling interval (s)"
           },
           "hint": {
-            "en": "Min interval before a report is sent to Homey (s)"
+            "en": "For TS0121/TSO121 fallback reads only; the shortest of these three intervals is used. Zigbee reporting is unchanged."
           },
           "value": 60,
           "attr": {
             "step": 1,
-            "min": 10,
+            "min": 60,
             "max": 86400
           }
         },
@@ -6314,15 +6299,15 @@
           "id": "minReportVoltage",
           "type": "number",
           "label": {
-            "en": "Min report interval for voltage (s)"
+            "en": "TS0121 fallback electrical polling interval (s)"
           },
           "hint": {
-            "en": "Min interval before a report is sent to Homey (s)"
+            "en": "For TS0121/TSO121 fallback reads only; the shortest of these three intervals is used. Zigbee reporting is unchanged."
           },
           "value": 60,
           "attr": {
             "step": 1,
-            "min": 10,
+            "min": 60,
             "max": 86400
           }
         },
@@ -6775,11 +6760,6 @@
       "capabilities": [
         "onoff"
       ],
-      "capabilitiesOptions": {
-        "measure_power": {
-          "approximated": true
-        }
-      },
       "images": {
         "large": "/drivers/socket_power_strip/assets/images/large.png",
         "small": "/drivers/socket_power_strip/assets/images/small.png"
@@ -6789,7 +6769,9 @@
           "_TZ3000_1obwwnmq",
           "_TZ3000_vzopcetz",
           "_TZ3000_4uf3d0ax",
-          "_TZ3000_wzauvbcs"
+          "_TZ3000_wzauvbcs",
+          "_TZ3000_oznonj5q",
+          "_TZ3000_vmpbygs5"
         ],
         "productId": [
           "TS011F"
@@ -7551,80 +7533,6 @@
           "max": 3600,
           "step": 1,
           "value": 60
-        }
-      ]
-    },
-    {
-      "id": "sonoff_snzb_01p",
-      "name": {
-        "en": "SONOFF Wireless Button SNZB-01P"
-      },
-      "class": "button",
-      "platforms": [
-        "local"
-      ],
-      "connectivity": [
-        "zigbee"
-      ],
-      "capabilities": [
-        "measure_battery",
-        "alarm_battery"
-      ],
-      "images": {
-        "large": "/drivers/sonoff_snzb_01p/assets/images/large.png",
-        "small": "/drivers/sonoff_snzb_01p/assets/images/small.png"
-      },
-      "energy": {
-        "batteries": [
-          "CR2477"
-        ]
-      },
-      "zigbee": {
-        "manufacturerName": [
-          "eWeLink"
-        ],
-        "productId": [
-          "SNZB-01P"
-        ],
-        "endpoints": {
-          "1": {
-            "clusters": [
-              0,
-              1,
-              3,
-              6,
-              32,
-              64599
-            ],
-            "bindings": [
-              1,
-              6
-            ]
-          }
-        },
-        "learnmode": {
-          "image": "/drivers/sonoff_snzb_01p/assets/icon.svg",
-          "instruction": {
-            "en": "Remove the back cover and press the reset button for 5 seconds until the LED starts blinking."
-          }
-        }
-      },
-      "settings": [
-        {
-          "id": "batteryThreshold",
-          "type": "number",
-          "label": {
-            "en": "Battery Low Alarm Threshold (%)"
-          },
-          "hint": {
-            "en": "This setting determines the battery percentage below which the battery alarm is enabled."
-          },
-          "value": 10,
-          "attr": {
-            "step": 1,
-            "min": 1,
-            "max": 90
-          }
         }
       ]
     },

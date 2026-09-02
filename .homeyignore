@@ -1,0 +1,5 @@
+# AI development tooling
+graft/
+.graft/
+AGENTS.md
+.ignore

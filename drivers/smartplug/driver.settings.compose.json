@@ -35,15 +35,15 @@
     "id": "minReportPower",
     "type": "number",
     "label": {
-      "en": "Min report interval for power (s)"
+      "en": "TS0121 fallback electrical polling interval (s)"
     },
     "hint": {
-      "en": "Min interval before a report is sent to Homey (s)"
+      "en": "For TS0121/TSO121 fallback reads only; the shortest of these three intervals is used. Zigbee reporting is unchanged."
     },
     "value": 60,
     "attr": {
       "step": 1,
-      "min": 10,
+      "min": 60,
       "max": 86400
     }
   },
@@ -51,15 +51,15 @@
     "id": "minReportCurrent",
     "type": "number",
     "label": {
-      "en": "Min report interval for current (s)"
+      "en": "TS0121 fallback electrical polling interval (s)"
     },
     "hint": {
-      "en": "Min interval before a report is sent to Homey (s)"
+      "en": "For TS0121/TSO121 fallback reads only; the shortest of these three intervals is used. Zigbee reporting is unchanged."
     },
     "value": 60,
     "attr": {
       "step": 1,
-      "min": 10,
+      "min": 60,
       "max": 86400
     }
   },
@@ -67,15 +67,15 @@
     "id": "minReportVoltage",
     "type": "number",
     "label": {
-      "en": "Min report interval for voltage (s)"
+      "en": "TS0121 fallback electrical polling interval (s)"
     },
     "hint": {
-      "en": "Min interval before a report is sent to Homey (s)"
+      "en": "For TS0121/TSO121 fallback reads only; the shortest of these three intervals is used. Zigbee reporting is unchanged."
     },
     "value": 60,
     "attr": {
       "step": 1,
-      "min": 10,
+      "min": 60,
       "max": 86400
     }
   },

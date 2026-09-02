@@ -7,8 +7,9 @@
       "nl": "Radar sensitiviteit"
     },
     "value": 7,
-    "min": 1,
-    "max": 9
+    "min": 0,
+    "max": 9,
+    "step": 1
   },
   {
     "id": "minimum_range",
@@ -20,6 +21,7 @@
     "value": 0,
     "min": 0,
     "max": 9.5,
+    "step": 0.15,
     "units": {
       "en": "meters",
       "nl": "meters"
@@ -35,6 +37,7 @@
     "value": 9.5,
     "min": 0,
     "max": 9.5,
+    "step": 0.15,
     "units": {
       "en": "meters",
       "nl": "meters"
@@ -50,6 +53,7 @@
     "value": 7,
     "min": 0,
     "max": 10,
+    "step": 0.1,
     "units": {
       "en": "seconds",
       "nl": "seconden"
@@ -63,8 +67,9 @@
       "nl": "Reset tijd"
     },
     "value": 7,
-    "min": 0,
+    "min": 0.5,
     "max": 1500,
+    "step": 1,
     "units": {
       "en": "seconds",
       "nl": "seconden"

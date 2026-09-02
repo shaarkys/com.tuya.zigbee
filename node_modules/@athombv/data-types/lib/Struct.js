@@ -35,7 +35,20 @@ function Struct(name, defs, opts) {
       constructor(props = {}) {
         // eslint-disable-next-line guard-for-in,no-restricted-syntax
         for (const key in props) {
-          if (!defs[key]) throw new TypeError(`${this.constructor.name}: ${key} is an unexpected property`);
+          // Use hasOwnProperty so prototype-chain keys like `constructor`,
+          // `toString`, etc. are rejected. The previous `!defs[key]` check
+          // walked the prototype chain and would accept `constructor` because
+          // `defs.constructor` resolves to `Object` (truthy).
+          //
+          // Use `new.target.name` for the prefix rather than
+          // `this.constructor.name`: classes constructed via this pattern can
+          // be subclassed, and `new.target` is the actual subclass being
+          // instantiated. Unlike `this.constructor`, `new.target` is a
+          // syntactic binding and cannot be shadowed by a `constructor`
+          // field that the caller may have set earlier in this same loop.
+          if (!Object.prototype.hasOwnProperty.call(defs, key)) {
+            throw new TypeError(`${new.target.name}: ${key} is an unexpected property`);
+          }
           this[key] = props[key];
         }
         // eslint-disable-next-line no-restricted-syntax

@@ -31,11 +31,24 @@ class smartplug extends ZigBeeDevice {
   }
 
   _isEnergyPollingOnlyDevice() {
-    return this.manufacturerName === '_TZ3000_cehuw1lw';
+    return ['_TZ3000_cehuw1lw', '_TZ3000_j1v25l17', '_TZ3000_ynmowqk2'].includes(this.manufacturerName);
   }
 
   _getElectricalMeasurementPollIntervalMs() {
-    return Math.max(10000, Math.min(this.minReportPower, this.minReportCurrent, this.minReportVoltage));
+    const intervals = [this.minReportPower, this.minReportCurrent, this.minReportVoltage]
+      .filter(interval => Number.isFinite(interval) && interval > 0);
+    return Math.max(60000, intervals.length > 0 ? Math.min(...intervals) : 60000);
+  }
+
+  static _normalizeEnumSettingValue(value, enumValues) {
+    const numeric = Number(value);
+    if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 2) return numeric;
+
+    if (typeof value === 'string') {
+      const mapped = enumValues?.[value];
+      if (Number.isInteger(mapped) && mapped >= 0 && mapped <= 2) return mapped;
+    }
+    return null;
   }
 
   _getMeteringPollIntervalMs() {
@@ -43,6 +56,8 @@ class smartplug extends ZigBeeDevice {
   }
 
   async _pollElectricalMeasurementCluster() {
+    if (this._electricalPollInFlight) return;
+    this._electricalPollInFlight = true;
     try {
       const attrs = await this.zclNode.endpoints[1].clusters.electricalMeasurement.readAttributes(['activePower', 'rmsCurrent', 'rmsVoltage']);
 
@@ -57,10 +72,14 @@ class smartplug extends ZigBeeDevice {
       }
     } catch (err) {
       this.error('Electrical measurement poll failed', err);
+    } finally {
+      this._electricalPollInFlight = false;
     }
   }
 
   async _pollMeteringCluster() {
+    if (this._meteringPollInFlight) return;
+    this._meteringPollInFlight = true;
     try {
       const attrs = await this.zclNode.endpoints[1].clusters.metering.readAttributes(['currentSummationDelivered']);
       if (typeof attrs.currentSummationDelivered === 'number') {
@@ -68,6 +87,8 @@ class smartplug extends ZigBeeDevice {
       }
     } catch (err) {
       this.error('Metering poll failed', err);
+    } finally {
+      this._meteringPollInFlight = false;
     }
   }
 
@@ -77,14 +98,14 @@ class smartplug extends ZigBeeDevice {
     if (this._isTS0121MeasurementPollingDevice()) {
       const electricalIntervalMs = this._getElectricalMeasurementPollIntervalMs();
       const meteringIntervalMs = this._getMeteringPollIntervalMs();
-      this._measurementPollInterval = this.homey.setInterval(() => this._pollElectricalMeasurementCluster(), electricalIntervalMs);
-      this._meteringPollInterval = this.homey.setInterval(() => this._pollMeteringCluster(), meteringIntervalMs);
+      this._measurementPollInterval = this.homey.setInterval(() => { void this._pollElectricalMeasurementCluster(); }, electricalIntervalMs);
+      this._meteringPollInterval = this.homey.setInterval(() => { void this._pollMeteringCluster(); }, meteringIntervalMs);
       return;
     }
 
     if (this._isEnergyPollingOnlyDevice()) {
       const meteringIntervalMs = this._getMeteringPollIntervalMs();
-      this._meteringPollInterval = this.homey.setInterval(() => this._pollMeteringCluster(), meteringIntervalMs);
+      this._meteringPollInterval = this.homey.setInterval(() => { void this._pollMeteringCluster(); }, meteringIntervalMs);
     }
   }
 
@@ -145,17 +166,18 @@ class smartplug extends ZigBeeDevice {
     // zclNode.endpoints[1].clusters.windowCovering.readAttributes(["motorReversal", "ANY OTHER IF NEEDED"]);
 
     try {
-      const relayStatus = await this.zclNode.endpoints[1].clusters.onOff.readAttributes(['relayStatus']);
-      const childLock = await this.zclNode.endpoints[1].clusters.onOff.readAttributes(['childLock']);
-      const indicatorMode = await this.zclNode.endpoints[1].clusters.onOff.readAttributes(['indicatorMode']);    
+      const { relayStatus, childLock, indicatorMode } = await this.zclNode.endpoints[1].clusters.onOff
+        .readAttributes(['relayStatus', 'childLock', 'indicatorMode']);
 
       this.log("Relay Status supported by device");
 
-      await this.setSettings({
-        relay_status : ZCLDataTypes.enum8RelayStatus.args[0][relayStatus.relayStatus].toString(),
-        indicator_mode: ZCLDataTypes.enum8IndicatorMode.args[0][indicatorMode.indicatorMode].toString(),
-        child_lock: childLock.childLock ? "1" : "0",
-      });
+      const settings = {};
+      const relayStatusId = smartplug._normalizeEnumSettingValue(relayStatus, ZCLDataTypes.enum8RelayStatus?.args?.[0]);
+      const indicatorModeId = smartplug._normalizeEnumSettingValue(indicatorMode, ZCLDataTypes.enum8IndicatorMode?.args?.[0]);
+      if (relayStatusId !== null) settings.relay_status = String(relayStatusId);
+      if (indicatorModeId !== null) settings.indicator_mode = String(indicatorModeId);
+      if (typeof childLock === 'boolean') settings.child_lock = childLock ? '1' : '0';
+      if (Object.keys(settings).length > 0) await this.setSettings(settings);
     } catch (error) {
       this.log("This device does not support Relay Control", error);
     }

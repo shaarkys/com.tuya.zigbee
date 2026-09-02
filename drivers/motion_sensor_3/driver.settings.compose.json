@@ -71,6 +71,16 @@
     }
   },
   {
+    "id": "temperature_unit",
+    "type": "radio",
+    "label": { "en": "Temperature unit" },
+    "value": "celsius",
+    "values": [
+      { "id": "celsius", "label": { "en": "Celsius" } },
+      { "id": "fahrenheit", "label": { "en": "Fahrenheit" } }
+    ]
+  },
+  {
     "id": "temperature_decimals",
     "type": "radio",
     "label": {

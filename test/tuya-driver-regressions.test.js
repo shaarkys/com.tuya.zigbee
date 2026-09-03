@@ -33,6 +33,9 @@ test('DATA32 encodes signed values and preserves default versus strict send fail
   assert.equal(sent.datatype, 2);
   assert.equal(sent.length, 4);
 
+  await device.writeData32(104, 0.29 * 100);
+  assert.deepEqual([...sent.data], [0, 0, 0, 28]);
+
   device._sendTuyaDatapoint = async () => { throw new Error('unreachable'); };
   await assert.doesNotReject(() => device.writeData32(104, 1));
   await assert.rejects(() => device.writeData32(104, 1, { throwOnError: true }), /unreachable/);

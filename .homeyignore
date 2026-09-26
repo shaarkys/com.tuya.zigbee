@@ -3,3 +3,5 @@ graft/
 .graft/
 AGENTS.md
 .ignore
+TESTS/
+tests/

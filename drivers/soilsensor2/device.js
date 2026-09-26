@@ -5,7 +5,7 @@ const { Cluster } = require('zigbee-clusters');
 const TuyaSpecificCluster = require('../../lib/TuyaSpecificCluster');
 const TuyaSpecificClusterDevice = require('../../lib/TuyaSpecificClusterDevice');
 const { getDataValue } = require('../../lib/TuyaHelpers');
-const { V2_SOIL_SENSOR_DATA_POINTS: DP } = require('../../lib/TuyaDataPoints');
+const { HOBEIAN_SOIL_SENSOR_DATA_POINTS, V2_SOIL_SENSOR_DATA_POINTS } = require('../../lib/TuyaDataPoints');
 
 Cluster.addCluster(TuyaSpecificCluster);
 
@@ -25,13 +25,15 @@ const CAP_ALARM_MOISTURE = 'alarm_moisture';
 class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   _displayUnit = 'celsius';
-  _displayUnitDp = DP.displayUnit;
+  _dp = V2_SOIL_SENSOR_DATA_POINTS;
+  _displayUnitDp = V2_SOIL_SENSOR_DATA_POINTS.displayUnit;
   _lastDryFromDevice = null;
   _lastSoilMoisture = undefined;
   _lastTemperatureRaw = undefined;
   async onNodeInit({ zclNode }) {
     await super.onNodeInit({ zclNode });
 
+    this._selectDatapoints();
     this._displayUnit = this.getSetting('display_unit') || 'celsius';
 
     this.printNode();
@@ -72,11 +74,30 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
     }
   }
 
+  _selectDatapoints() {
+    const manufacturer = this.getSetting('zb_manufacturer_name');
+    const productId = this.getSetting('zb_product_id');
+    const isHobeian = manufacturer === 'HOBEIAN' || productId === 'ZG-303Z';
+    this._dp = isHobeian ? HOBEIAN_SOIL_SENSOR_DATA_POINTS : V2_SOIL_SENSOR_DATA_POINTS;
+    this._displayUnitDp = this._dp.displayUnit;
+    this.log('Using soil sensor datapoints:', isHobeian ? 'HOBEIAN/ZG-303Z' : 'TS0601', manufacturer, productId);
+  }
+
   _handleTuyaDatapoint(dpValue) {
     const dp = dpValue?.dp;
     if (typeof dp !== 'number') return;
 
+    if (this._dp !== HOBEIAN_SOIL_SENSOR_DATA_POINTS
+      && [HOBEIAN_SOIL_SENSOR_DATA_POINTS.soilMoisture,
+        HOBEIAN_SOIL_SENSOR_DATA_POINTS.temperature,
+        HOBEIAN_SOIL_SENSOR_DATA_POINTS.batteryPercentage].includes(dp)) {
+      this._dp = HOBEIAN_SOIL_SENSOR_DATA_POINTS;
+      this._displayUnitDp = this._dp.displayUnit;
+      this.log('Detected HOBEIAN/ZG-303Z datapoints from report DP', dp);
+    }
+
     const value = getDataValue(dpValue);
+    const DP = this._dp;
     this.debug('Tuya DP', dp, 'value', value);
 
     switch (dp) {
@@ -233,6 +254,7 @@ class SoilSensorC3007Device extends TuyaSpecificClusterDevice {
 
   async onSettings({ newSettings, changedKeys }) {
     const tasks = [];
+    const DP = this._dp;
 
     for (const key of changedKeys) {
       switch (key) {

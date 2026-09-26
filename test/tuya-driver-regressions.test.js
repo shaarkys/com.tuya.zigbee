@@ -14,7 +14,8 @@ Module._load = function mockHomey(request, parent, isMain) {
 };
 
 const TuyaSpecificClusterDevice = require('../lib/TuyaSpecificClusterDevice');
-const { V2_SOIL_SENSOR_DATA_POINTS: soil } = require('../lib/TuyaDataPoints');
+const { HOBEIAN_SOIL_SENSOR_DATA_POINTS: hobeianSoil, V2_SOIL_SENSOR_DATA_POINTS: soil } = require('../lib/TuyaDataPoints');
+const SoilSensorC3007Device = require('../drivers/soilsensor2/device');
 const radarSensor2 = require('../drivers/radar_sensor_2/device');
 const smartplug = require('../drivers/smartplug/device');
 const IrrigationController = require('../drivers/smart_garden_irrigation_control/device');
@@ -43,6 +44,20 @@ test('DATA32 encodes signed values and preserves default versus strict send fail
 });
 
 test('model-specific soil, radar, and motion driver contracts remain scoped', () => {
+  assert.deepEqual(hobeianSoil, {
+    soilMoisture: 3,
+    temperature: 5,
+    displayUnit: 9,
+    batteryPercentage: 15,
+    soilMoistureCalibration: 102,
+    temperatureCalibration: 104,
+    humidityCalibration: 105,
+    dryAlarm: 106,
+    humidity: 109,
+    alarmSoilMoistureMin: 110,
+    temperatureSampling: 111,
+    soilMoistureSampling: 112,
+  });
   assert.deepEqual(soil, {
     dryAlarm: 1,
     soilMoistureCalibration: 102,
@@ -71,6 +86,62 @@ test('model-specific soil, radar, and motion driver contracts remain scoped', ()
   const radarSource = fs.readFileSync(path.join(root, 'drivers/radar_sensor_2/device.js'), 'utf8');
   assert.equal(radarSource.includes('getDeviceTriggerCard'), false);
   assert.equal(radarSource.includes('targetDistanceTrigger'), false);
+});
+
+test('soil sensor selects matching datapoints for reports and settings writes', async () => {
+  for (const [manufacturer, productId, profile] of [
+    ['HOBEIAN', 'ZG-303Z', hobeianSoil],
+    ['_TZE200_wqashyqo', 'TS0601', soil],
+  ]) {
+    const device = Object.create(SoilSensorC3007Device.prototype);
+    const capabilities = [];
+    const writes = [];
+    device.getSetting = key => ({ zb_manufacturer_name: manufacturer, zb_product_id: productId, display_unit: 'celsius' })[key];
+    device.hasCapability = () => true;
+    device.setCapabilityValue = async (capability, value) => { capabilities.push([capability, value]); };
+    device.writeEnum = async (dp, value) => { writes.push([dp, value]); };
+    device.log = () => {};
+    device.debug = () => {};
+    device._selectDatapoints();
+    assert.equal(device._dp, profile);
+
+    const report = (dp, value) => device._handleTuyaDatapoint({
+      dp, datatype: 2, data: Buffer.from([0, 0, 0, value]),
+    });
+    report(profile.soilMoisture, 36);
+    report(profile.temperature, 232);
+    report(profile.humidity, 82);
+    report(profile.batteryPercentage, 90);
+    report(profile.dryAlarm, 1);
+    assert.ok(capabilities.some(entry => entry[0] === 'measure_moisture' && entry[1] === 36));
+    assert.ok(capabilities.some(entry => entry[0] === 'measure_temperature' && entry[1] === 23.2));
+    assert.ok(capabilities.some(entry => entry[0] === 'measure_humidity' && entry[1] === 82));
+    assert.ok(capabilities.some(entry => entry[0] === 'measure_battery' && entry[1] === 90));
+    assert.ok(capabilities.some(entry => entry[0] === 'alarm_moisture' && entry[1] === true));
+
+    await device.onSettings({ newSettings: { display_unit: 'fahrenheit' }, changedKeys: ['display_unit'] });
+    assert.deepEqual(writes, [[profile.displayUnit, 1]]);
+  }
+});
+
+test('ZG-303Z recovers from a wrong profile and processes observed Tuya reports', () => {
+  const device = Object.create(SoilSensorC3007Device.prototype);
+  const capabilities = [];
+  device._dp = soil;
+  device._lastDryFromDevice = null;
+  device.getSetting = key => (key === 'alarm_soil_moisture_min' ? 20 : undefined);
+  device.hasCapability = () => true;
+  device.setCapabilityValue = async (capability, value) => { capabilities.push([capability, value]); };
+  device.log = () => {};
+  device.debug = () => {};
+
+  device._handleTuyaDatapoint({ dp: 3, datatype: 2, data: Buffer.from([0, 0, 0, 32]) });
+  device._handleTuyaDatapoint({ dp: 5, datatype: 2, data: Buffer.from([0, 0, 0, 213]) });
+  device._handleTuyaDatapoint({ dp: 3, datatype: 2, data: Buffer.from([0, 0, 0, 34]) });
+  assert.equal(device._dp, hobeianSoil);
+  assert.ok(capabilities.some(entry => entry[0] === 'measure_moisture' && entry[1] === 32));
+  assert.ok(capabilities.some(entry => entry[0] === 'measure_temperature' && entry[1] === 21.3));
+  assert.ok(capabilities.some(entry => entry[0] === 'measure_moisture' && entry[1] === 34));
 });
 
 test('smartplug clamps fallback polling and prevents overlapping electrical reads', async () => {

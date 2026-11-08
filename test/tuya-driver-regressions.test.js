@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const Module = require('node:module');
+const { EventEmitter } = require('node:events');
 
 // The app runtime supplies Homey; only the prototype-level helpers are tested here.
 const originalLoad = Module._load;
@@ -19,8 +20,259 @@ const SoilSensorC3007Device = require('../drivers/soilsensor2/device');
 const radarSensor2 = require('../drivers/radar_sensor_2/device');
 const smartplug = require('../drivers/smartplug/device');
 const IrrigationController = require('../drivers/smart_garden_irrigation_control/device');
+const DoorWindowSensor = require('../drivers/doorwindowsensor/device');
 
 const root = path.resolve(__dirname, '..');
+
+test('door sensor restores missing CR2032 metadata once and preserves energy settings', async () => {
+  for (const initialEnergy of [null, {}, { batteries: null }, { batteries: [], approximation: { usageConstant: 0 } }]) {
+    const device = Object.create(DoorWindowSensor.prototype);
+    let energy = initialEnergy;
+    let writes = 0;
+    device.getSetting = () => '_TZ3000_1bwpjvlz';
+    device.driver = { manifest: { energy: { batteries: ['CR2032'] } } };
+    device.getEnergy = () => energy;
+    device.setEnergy = async value => { energy = value; writes += 1; };
+    device.log = () => {};
+    device.error = err => { throw err; };
+
+    await device.restoreBatteryType();
+    assert.deepEqual(energy, { ...initialEnergy, batteries: ['CR2032'] });
+    await device.restoreBatteryType();
+    assert.equal(writes, 1);
+  }
+});
+
+test('door sensor preserves existing battery metadata and other manufacturer variants', async () => {
+  for (const [manufacturer, energy] of [
+    ['_TZ3000_1bwpjvlz', { batteries: ['CR2032'] }],
+    ['_TZ3000_1bwpjvlz', { batteries: ['AAA', 'AAA'] }],
+    ['_TZ3000_yxqnffam', {}],
+  ]) {
+    const device = Object.create(DoorWindowSensor.prototype);
+    device.getSetting = () => manufacturer;
+    device.getEnergy = () => energy;
+    device.setEnergy = async () => assert.fail('Unexpected energy write');
+    device.error = err => { throw err; };
+    await device.restoreBatteryType();
+  }
+});
+
+test('door sensor initialization continues after battery metadata migration fails', async () => {
+  const device = Object.create(DoorWindowSensor.prototype);
+  const failure = new Error('Energy update failed');
+  let reportedError;
+  let batteryListener;
+  device.getSetting = () => '_TZ3000_1bwpjvlz';
+  device.driver = { manifest: { energy: { batteries: ['CR2032'] } } };
+  device.getEnergy = () => ({});
+  device.setEnergy = async () => { throw failure; };
+  device.printNode = () => {};
+  device.log = () => {};
+  device.error = (...args) => { reportedError = args; };
+  device.isFirstInit = () => false;
+  device.initBatteryVoltage = async () => {};
+  const iasZone = {};
+  const powerConfiguration = { on: (event, listener) => { batteryListener = listener; } };
+
+  await device.onNodeInit({ zclNode: { endpoints: { 1: { clusters: { iasZone, powerConfiguration } } } } });
+  assert.equal(reportedError[1], failure);
+  assert.equal(typeof iasZone.onZoneStatusChangeNotification, 'function');
+  assert.equal(typeof batteryListener, 'function');
+});
+
+function batteryVoltageDevice(manufacturer = '_TZ3000_1bwpjvlz') {
+  const device = Object.create(DoorWindowSensor.prototype);
+  const state = { capabilities: new Set(), store: {}, registrations: [], reports: [], reads: [], errors: [], retries: [] };
+  device.getSetting = key => key === 'batteryThreshold' ? 20 : manufacturer;
+  device.hasCapability = id => state.capabilities.has(id);
+  device.addCapability = async id => { state.capabilities.add(id); };
+  device.registerCapability = (...args) => { state.registrations.push(args); };
+  device.getStoreValue = key => state.store[key];
+  device.setStoreValue = async (key, value) => { state.store[key] = value; };
+  device.configureAttributeReporting = async config => { state.reports.push(config); };
+  device.getClusterCapabilityValue = async (...args) => { state.reads.push(args); };
+  device.scheduleForNextEndDeviceAnnounce = callback => {
+    state.retries.push(callback);
+    return new Promise(() => {});
+  };
+  device.isFirstInit = () => false;
+  device.log = () => {};
+  device.error = (...args) => { state.errors.push(args); };
+  return { device, state };
+}
+
+test('node identity restores both battery metadata and voltage when system settings are absent', async () => {
+  const { device, state } = batteryVoltageDevice();
+  device.node = { manufacturerName: '_TZ3000_1bwpjvlz' };
+  device.getSetting = () => undefined;
+  device.driver = { manifest: { energy: { batteries: ['CR2032'] } } };
+  let energy = {};
+  device.getEnergy = () => energy;
+  device.setEnergy = async value => { energy = value; };
+  device.printNode = () => {};
+  device.getClusterCapabilityValue = async (...args) => {
+    assert.equal(state.capabilities.has('measure_voltage'), true);
+    assert.deepEqual(energy.batteries, ['CR2032']);
+    state.reads.push(args);
+    throw new Error('Sensor is sleeping');
+  };
+  const iasZone = {};
+  const powerConfiguration = { on: () => {} };
+
+  await device.onNodeInit({ zclNode: { endpoints: { 1: { clusters: { iasZone, powerConfiguration } } } } });
+  assert.deepEqual(energy.batteries, ['CR2032']);
+  assert.equal(state.capabilities.has('measure_voltage'), true);
+  assert.equal(state.registrations.length, 1);
+  assert.equal(state.reads.length, 1);
+  assert.match(state.errors[0][1].message, /Sensor is sleeping/);
+  assert.equal(typeof iasZone.onZoneStatusChangeNotification, 'function');
+});
+
+test('live Zigbee node identity takes precedence over a conflicting setting', async () => {
+  const { device, state } = batteryVoltageDevice();
+  device.node = { manufacturerName: '_TZ3000_yxqnffam' };
+  device.getEnergy = () => assert.fail('Unrelated manufacturer must not be migrated');
+  await device.restoreBatteryType();
+  await device.initBatteryVoltage();
+  assert.equal(state.capabilities.size, 0);
+  assert.equal(state.registrations.length, 0);
+  assert.equal(state.reads.length, 0);
+});
+
+test('existing target door sensor gains voltage reporting without repeated migration or registration', async () => {
+  const { device, state } = batteryVoltageDevice();
+  let additions = 0;
+  device.addCapability = async id => { additions += 1; state.capabilities.add(id); };
+  await device.initBatteryVoltage();
+  await device.initBatteryVoltage();
+  assert.equal(additions, 1);
+  assert.equal(state.registrations.length, 1);
+  const [capability, cluster, config] = state.registrations[0];
+  assert.equal(capability, 'measure_voltage');
+  assert.equal(cluster.NAME, 'powerConfiguration');
+  assert.equal(config.get, 'batteryVoltage');
+  assert.equal(config.report, 'batteryVoltage');
+  assert.deepEqual(config.getOpts, { getOnStart: true, getOnOnline: true });
+  assert.equal(config.getOpts.pollInterval, undefined);
+  assert.equal(config.reportParser.call(device, 30), 3);
+  assert.equal(state.reports.length, 1);
+  assert.deepEqual(state.reports[0], [{
+    endpointId: 1, cluster, attributeName: 'batteryVoltage', minInterval: 3600, maxInterval: 21600, minChange: 1,
+  }]);
+  assert.equal(state.store.batteryVoltageReportingConfigured, true);
+  assert.equal(state.reads.length, 2);
+  assert.equal(state.errors.length, 0);
+});
+
+test('battery voltage accepts ZCL decivolts and ignores unknown or malformed readings', () => {
+  const { device } = batteryVoltageDevice();
+  for (const [raw, volts] of [[0, 0], [25, 2.5], [28, 2.8], [30, 3], [31, 3.1], [254, 25.4]]) {
+    assert.equal(device.parseBatteryVoltage(raw), volts);
+  }
+  for (const raw of [255, 256, -1, 2.5, null, undefined, NaN, Infinity, '30']) {
+    assert.equal(device.parseBatteryVoltage(raw), null);
+  }
+});
+
+test('installed Zigbee SDK routes voltage reports and announce reads through the registered capability', async () => {
+  const { device, state } = batteryVoltageDevice();
+  device.registerCapability = DoorWindowSensor.prototype.registerCapability;
+  device._clusterCapabilityConfigurations = new Map();
+  device.node = new EventEmitter();
+  device.node.receiveWhenIdle = false;
+  const powerConfiguration = new EventEmitter();
+  device.zclNode = { endpoints: { 1: { clusters: { powerConfiguration } } } };
+  device.debug = () => {};
+  device.registerCapabilityListener = () => {};
+  let voltage = null;
+  device.getCapabilityValue = () => voltage;
+  device.setCapabilityValue = async (id, value) => {
+    assert.equal(id, 'measure_voltage');
+    voltage = value;
+  };
+
+  await device.initBatteryVoltage();
+  await device.initBatteryVoltage();
+  assert.equal(powerConfiguration.listenerCount('attr.batteryVoltage'), 1);
+  assert.equal(device.node.listenerCount('endDeviceAnnounce'), 1);
+  powerConfiguration.emit('attr.batteryVoltage', 30);
+  await new Promise(setImmediate);
+  assert.equal(voltage, 3);
+  powerConfiguration.emit('attr.batteryVoltage', 255);
+  await new Promise(setImmediate);
+  assert.equal(voltage, 3);
+  const readsBeforeAnnounce = state.reads.length;
+  device.node.emit('endDeviceAnnounce');
+  assert.equal(state.reads.length, readsBeforeAnnounce + 1);
+  assert.equal(state.errors.length, 0);
+});
+
+test('voltage configuration failure keeps reporting and reads active with one deferred retry', async () => {
+  const { device, state } = batteryVoltageDevice();
+  const failure = new Error('Sleepy sensor did not respond');
+  device.configureAttributeReporting = async () => { throw failure; };
+  await device.initBatteryVoltage();
+  await device.initBatteryVoltage();
+  assert.equal(state.store.batteryVoltageReportingConfigured, undefined);
+  assert.equal(state.registrations.length, 1);
+  assert.equal(state.reads.length, 2);
+  assert.equal(state.retries.length, 1);
+  assert.equal(state.errors[0][1], failure);
+
+  device.configureAttributeReporting = async config => { state.reports.push(config); };
+  await state.retries[0]();
+  assert.equal(state.store.batteryVoltageReportingConfigured, true);
+  assert.equal(state.reports.length, 1);
+});
+
+test('voltage capability migration failure leaves contact and battery percentage listeners active', async () => {
+  const { device, state } = batteryVoltageDevice();
+  const failure = new Error('Capability storage unavailable');
+  device.addCapability = async () => { throw failure; };
+  device.printNode = () => {};
+  device.restoreBatteryType = async () => {};
+  let percentageListener;
+  const iasZone = {};
+  const powerConfiguration = { on: (event, listener) => { percentageListener = listener; } };
+  await device.onNodeInit({ zclNode: { endpoints: { 1: { clusters: { iasZone, powerConfiguration } } } } });
+  assert.equal(state.errors[0][1], failure);
+  assert.equal(typeof iasZone.onZoneStatusChangeNotification, 'function');
+  assert.equal(typeof percentageListener, 'function');
+  assert.equal(state.registrations.length, 0);
+  assert.equal(state.reports.length, 0);
+});
+
+test('voltage support is scoped to the observed manufacturer and preserves percentage values', async () => {
+  const { device, state } = batteryVoltageDevice('_TZ3000_yxqnffam');
+  await device.initBatteryVoltage();
+  assert.equal(state.capabilities.size, 0);
+  assert.equal(state.registrations.length, 0);
+  assert.equal(state.reports.length, 0);
+  assert.equal(state.reads.length, 0);
+
+  const values = [];
+  device.setCapabilityValue = async (id, value) => { values.push([id, value]); };
+  device.onBatteryPercentageRemainingAttributeReport(62);
+  assert.deepEqual(values, [['measure_battery', 31], ['alarm_battery', false]]);
+});
+
+test('new door sensor uses the SDK initial voltage read and successful reporting survives restart', async () => {
+  const { device, state } = batteryVoltageDevice();
+  device.isFirstInit = () => true;
+  await device.initBatteryVoltage();
+  assert.equal(state.registrations[0][2].get, 'batteryVoltage');
+  assert.equal(state.reads.length, 0);
+  assert.equal(state.reports.length, 1);
+
+  const restarted = batteryVoltageDevice();
+  restarted.state.capabilities.add('measure_voltage');
+  Object.assign(restarted.state.store, state.store);
+  await restarted.device.initBatteryVoltage();
+  assert.equal(restarted.state.reports.length, 0);
+  assert.equal(restarted.state.reads.length, 1);
+  assert.equal(restarted.state.registrations.length, 1);
+});
 
 test('DATA32 encodes signed values and preserves default versus strict send failures', async () => {
   const device = Object.create(TuyaSpecificClusterDevice.prototype);

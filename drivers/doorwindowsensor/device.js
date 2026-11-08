@@ -10,6 +10,9 @@ class doorwindowsensor extends ZigBeeDevice {
 
     this.printNode();
 
+    this.log('Door sensor battery support initialization | manufacturer:', this.getBatteryManufacturerName() || 'unknown');
+    await this.restoreBatteryType();
+
     if (this.isFirstInit()){
 			await this.configureAttributeReporting([
 				{
@@ -42,8 +45,106 @@ class doorwindowsensor extends ZigBeeDevice {
     // measure_battery // alarm_battery
 		zclNode.endpoints[1].clusters[CLUSTER.POWER_CONFIGURATION.NAME]
 		.on('attr.batteryPercentageRemaining', this.onBatteryPercentageRemainingAttributeReport.bind(this));
+
+    await this.initBatteryVoltage();
     }
   
+  getBatteryManufacturerName() {
+    // Homey's displayed Zigbee system settings need not be exposed as app settings.
+    return this.node?.manufacturerName || this.getSetting('zb_manufacturer_name');
+  }
+
+  async restoreBatteryType() {
+    if (this.getBatteryManufacturerName() !== '_TZ3000_1bwpjvlz') return;
+
+    try {
+      const energy = this.getEnergy() || {};
+      if (Array.isArray(energy.batteries) && energy.batteries.length > 0) return;
+
+      // An empty device energy override can hide the batteries declared in the manifest.
+      this.log('Door sensor battery type migration started: CR2032');
+      await this.setEnergy({
+        ...this.driver.manifest.energy,
+        ...energy,
+        batteries: ['CR2032'],
+      });
+      this.log('Door sensor battery type migration completed: CR2032');
+    } catch (err) {
+      this.error('Door sensor battery type migration failed:', err);
+    }
+  }
+
+  async initBatteryVoltage() {
+    // Other variants sharing this driver have not been verified to expose batteryVoltage.
+    if (this.getBatteryManufacturerName() !== '_TZ3000_1bwpjvlz') return;
+
+    try {
+      if (!this.hasCapability('measure_voltage')) {
+        this.log('Door sensor voltage capability migration started');
+        await this.addCapability('measure_voltage');
+        this.log('Door sensor voltage capability migration completed');
+      }
+
+      if (!this._batteryVoltageRegistered) {
+        this.registerCapability('measure_voltage', CLUSTER.POWER_CONFIGURATION, {
+          endpoint: 1,
+          get: 'batteryVoltage',
+          report: 'batteryVoltage',
+          getOpts: { getOnStart: true, getOnOnline: true },
+          reportParser: this.parseBatteryVoltage,
+        });
+        this._batteryVoltageRegistered = true;
+      }
+    } catch (err) {
+      this.error('Door sensor voltage capability initialization failed:', err);
+      return;
+    }
+
+    // Reporting must also be configured for already paired devices, outside isFirstInit().
+    await this.configureBatteryVoltageReporting().catch(err => {
+      this.error('Door sensor battery voltage reporting failed; retrying on next announce:', err);
+      if (!this._batteryVoltageReportingRetryPending) {
+        this._batteryVoltageReportingRetryPending = true;
+        this.scheduleForNextEndDeviceAnnounce(this.configureBatteryVoltageReporting.bind(this))
+          .catch(retryErr => this.error('Door sensor battery voltage reporting retry failed:', retryErr))
+          .finally(() => { this._batteryVoltageReportingRetryPending = false; });
+      }
+    });
+
+    // The SDK reads automatically on first pairing, but skips startup reads for sleepy devices.
+    if (!this.isFirstInit()) {
+      this.getClusterCapabilityValue('measure_voltage', CLUSTER.POWER_CONFIGURATION)
+        .catch(err => this.error('Door sensor initial battery voltage read failed; waiting for next announce:', err));
+    }
+  }
+
+  async configureBatteryVoltageReporting() {
+    if (this.getStoreValue('batteryVoltageReportingConfigured') === true) return;
+
+    this.log('Door sensor battery voltage reporting configuration started');
+    await this.configureAttributeReporting([{
+      endpointId: 1,
+      cluster: CLUSTER.POWER_CONFIGURATION,
+      attributeName: 'batteryVoltage',
+      minInterval: 3600,
+      maxInterval: 21600,
+      minChange: 1,
+    }]);
+    await this.setStoreValue('batteryVoltageReportingConfigured', true);
+    this.log('Door sensor battery voltage reporting configuration completed');
+  }
+
+  parseBatteryVoltage(rawValue) {
+    // ZCL batteryVoltage is in 100 mV units; 0xFF means unknown.
+    if (!Number.isInteger(rawValue) || rawValue < 0 || rawValue >= 255) {
+      this.log('Door sensor ignored invalid/unknown batteryVoltage:', rawValue);
+      return null;
+    }
+    const voltage = rawValue / 10;
+    this.log('Door sensor batteryVoltage | raw:', rawValue, '| voltage:', voltage, 'V');
+    return voltage;
+  }
+
   onIASZoneStatusChangeNotification({zoneStatus, extendedStatus, zoneId, delay,}) {
     this.log('Door/Windows Sensor IASZoneStatusChangeNotification received:', zoneStatus, extendedStatus, zoneId, delay);
     this.setCapabilityValue('alarm_contact', zoneStatus.alarm1).catch(this.error);
